@@ -23,7 +23,7 @@ def sample_recipe():
     """Fixture providing a sample recipe for testing."""
     return {
         "ID": 1234,
-        "AmountResult": 1,
+        "AmountResult": 10,
         "ItemResult": 5678,
         "ItemIngredient0": 1111,
         "AmountIngredient0": 2,

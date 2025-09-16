@@ -1,24 +1,20 @@
-import update_db
 """TODO:
 Unit tests
 Frontend
 Make recursive for subcrafts
 """
-import duckdb
+
 from typing import List, Optional, Dict, Union
-import polars as pl
 import os
 import requests
-from pathlib import Path
-from datetime import datetime, timezone
-from dotenv import load_dotenv
-from functools import wraps
-import logging
-import json
-from pprint import pprint
-import numpy as np
-from statistics import median, mean
+from statistics import median
 
+import polars as pl
+import duckdb
+
+import update_db
+from utils import utils
+logger = utils.setup_logger(__name__)
 
 def split_listings_by_quality(listings: List[dict]) -> tuple[List[dict], List[dict]]:
     """Split listings into HQ and NQ lists.
@@ -32,7 +28,6 @@ def split_listings_by_quality(listings: List[dict]) -> tuple[List[dict], List[di
     nq_listings = [listing["pricePerUnit"] for listing in listings if listing.get('hq') == False]
     hq_listings = [listing["pricePerUnit"] for listing in listings if listing.get('hq') == True]
     return nq_listings, hq_listings
-
 
 def calculate_market_stats(listings: List[dict]) -> Dict:
     """Calculate market statistics from listings, separating HQ and NQ items.
@@ -63,42 +58,6 @@ def calculate_market_stats(listings: List[dict]) -> Dict:
         pass
     return stats
 
-### TODO: Move Config to env?
-class Config:
-    """Configuration class for the application."""
-    FILES = [
-        "Item.csv", "ItemFood.csv", "ItemLevel.csv", "ItemSearchCategory.csv",
-        "ItemSeries.csv", "ItemSortCategory.csv", "ItemUICategory.csv",
-        "RecipeNotebookList.csv", "Recipe.csv", "RecipeLevelTable.csv",
-        "RecipeLookup.csv", "RecipeNotebookList.csv", "RecipeSubCategory.csv",
-        "GilShop.csv", "GilShopInfo.csv", "GilShopItem.csv"
-    ]
-    DB_NAME = "ffxiv_price.duckdb"
-    GH_KEY = os.environ.get("GITHUB_API_KEY")
-    TESTING = True  # Set to False to enable online mode; mainly for testing
-    REQUEST_TIMEOUT = 30  # seconds
-    MAX_RETRIES = 3
-
-def setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
-    """Configure and return a logger instance.
-    
-    Args:
-        name: Name of the logger, typically __name__
-        level: Logging level, defaults to INFO
-        
-    Returns:
-        Configured logger instance
-    """
-    # Configure logging only if it hasn't been configured yet
-    if not logging.getLogger().handlers:
-        logging.basicConfig(
-            level=level,
-            format='%(asctime)s - %(levelname)s - %(message)s'
-        )
-    
-    # Get and return logger instance
-    return logging.getLogger(name)
-
 
 def get_ingredients(item: int) -> Optional[list]:
     """Get item ingredient list from local db
@@ -110,7 +69,7 @@ def get_ingredients(item: int) -> Optional[list]:
         Optional[dict]: Item crafting ingredient dict, or None if request failsprint(details)
     """
     logger.info(f"Getting item {item} from local db")
-    with duckdb.connect(Config.DB_NAME) as db:
+    with duckdb.connect(os.getenv("DB_NAME")) as db:
         try:
             # Query the database and convert to polars DataFrame
             df = db.sql(f"SELECT * FROM main.recipe_price WHERE result_id = {item}").pl()
@@ -174,7 +133,7 @@ def fetch_universalis(item_id: int, region: str = "Japan") -> Optional[dict]:
                       "fields": "items.listings.pricePerUnit,items.listings.onMannequin,items.listings.hq,items.nqSaleVelocity,items.hqSaleVelocity"}
 
         logger.info(f"Fetching market data from: {url}")
-        response = requests.get(url, params = parameters, timeout=Config.REQUEST_TIMEOUT)
+        response = requests.get(url, params = parameters)
         response.raise_for_status()
         market_data = response.json()
         
@@ -305,13 +264,6 @@ def fetch_universalis(item_id: int, region: str = "Japan") -> Optional[dict]:
             print("Warning: Crafting this item will result in a loss!")
         elif hq_craft_pl_perc < 0.2:
             print("Note: Low profit margin (below 20%)!")
-
-            
-                # # Profit evaluation
-                
-            
-
-
         return item_data
 
     except requests.exceptions.RequestException as e:
@@ -322,18 +274,13 @@ def fetch_universalis(item_id: int, region: str = "Japan") -> Optional[dict]:
     #     return None
 
 if __name__ == "__main__":
-    logger = setup_logger(__name__)
-
-    try:
-        if not Config.TESTING:
-            update_db.main()
-            
-        # Example item ID
-        item_id = 47185
+    if os.getenv("OFFLINE_MODE").lower() in ("true", "1", "yes", "y"):
+        logger.info("Running in offline mode; skipping CSV updates from GitHub repo")
+    else:
+        update_db.main()
         
-        # Fetch market data
-        market_data = fetch_universalis(item_id)
-  
-                
-    except Exception as e:
-        logger.error(f"Error in main execution: {e}", exc_info=True)
+    # Example item ID
+    item_id = 47185
+    
+    # Fetch market data
+    market_data = fetch_universalis(item_id)
