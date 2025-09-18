@@ -1,17 +1,15 @@
 """Script to update local DuckDB database with latest FFXIV data from xivapi/ffxiv-datamining GitHub repo"""
 
 from typing import List, Optional, Dict, Union
-import os
-from dotenv import load_dotenv
 import requests
 from pathlib import Path
 from datetime import datetime, timezone
 import duckdb
 import polars as pl
 
+import config
 from utils import utils
 
-load_dotenv()
 logger = utils.setup_logger(__name__)
 csv_files =["Item.csv", "ItemFood.csv", "ItemLevel.csv", "ItemSearchCategory.csv",
         "ItemSeries.csv", "ItemSortCategory.csv", "ItemUICategory.csv",
@@ -48,7 +46,7 @@ def git_last_updated(file: str) -> Optional[datetime]:
         Optional[datetime]: The last commit time in UTC, or None if request fails
     """
     url = f"https://api.github.com/repos/xivapi/ffxiv-datamining/commits?path=csv/{file}"
-    headers = {"Authorization": f"Bearer {os.getenv("GH_KEY")}"}
+    headers = {"Authorization": f"Bearer {config.GH_KEY}"}
     
     try:
         response = requests.get(url, headers=headers)
@@ -69,7 +67,7 @@ def save_csv(file: str) -> bool:
         bool: True if successful, False otherwise
     """
     url = f"https://github.com/xivapi/ffxiv-datamining/blob/master/csv/{file}?raw=true"
-    headers = {"Authorization": f"Bearer {os.getenv("GH_KEY")}"}
+    headers = {"Authorization": f"Bearer {config.GH_KEY}"}
     try:
         response = requests.get(url, headers=headers)
         response.raise_for_status()
@@ -127,7 +125,7 @@ def update_duckdb(updated_files: List[str]) -> None:
         updated_files: List of files that need to be updated in the database
     """
     
-    with duckdb.connect(os.getenv("DB_NAME")) as db:
+    with duckdb.connect(config.DB_NAME) as db:
         for file in updated_files:
             filename = os.path.splitext(file)[0]
             logger.debug(f"Processing {filename} for database update")
@@ -167,7 +165,7 @@ def main():
 
 if __name__ == "__main__":
     # Offline mode check in this module no longer necessary as this is now checked in main.py
-    if os.getenv("OFFLINE_MODE").lower() in ("true", "1", "yes", "y"):
+    if config.OFFLINE_MODE:
         logger.info("Running in offline mode; skipping CSV updates from GitHub repo")
         tables_to_update = list(csv_files)  # Use locally cached files in offline mode
     else:

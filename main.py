@@ -5,16 +5,15 @@ Make recursive for subcrafts
 """
 
 from typing import List, Optional, Dict, Union
-import os
 import requests
-from statistics import median
-
 import polars as pl
 import duckdb
 
-import update_db
+
+import config
 from utils import utils
 logger = utils.setup_logger(__name__)
+import update_db
 
 def split_listings_by_quality(listings: List[dict]) -> tuple[List[dict], List[dict]]:
     """Split listings into HQ and NQ lists.
@@ -69,7 +68,7 @@ def get_ingredients(item: int) -> Optional[list]:
         Optional[dict]: Item crafting ingredient dict, or None if request failsprint(details)
     """
     logger.info(f"Getting item {item} from local db")
-    with duckdb.connect(os.getenv("DB_NAME")) as db:
+    with duckdb.connect(config.DB_NAME) as db:
         try:
             # Query the database and convert to polars DataFrame
             df = db.sql(f"SELECT * FROM main.recipe_price WHERE result_id = {item}").pl()
@@ -201,7 +200,7 @@ def fetch_universalis(item_id: int, region: str = "Japan") -> Optional[dict]:
                    "nq_velocity": nq_velocity,
                    "hq_velocity": hq_velocity}
         
-        def print_formatted_price_date(item: dict) -> None:
+        def print_formatted_price_data(item: dict) -> None:
             print(f'Item: {item["name"]}')
             # print(f'ID: {item["id"]}')
             print(f'Number per craft: {item["amount"]}')
@@ -219,7 +218,7 @@ def fetch_universalis(item_id: int, region: str = "Japan") -> Optional[dict]:
             if k.startswith('result'):
                 item = format_price_data(v)
                 print("\n=== Crafted Item ===")
-                print_formatted_price_date(item)
+                print_formatted_price_data(item)
                 buy_nq_total = item["nq_total"]
                 buy_hq_total = item["hq_total"]
                 break
@@ -230,7 +229,7 @@ def fetch_universalis(item_id: int, region: str = "Japan") -> Optional[dict]:
             if k.startswith('ingredient'):
                 item = format_price_data(v)
                 print(f"\n=== {k.title()} ===")
-                print_formatted_price_date(item)
+                print_formatted_price_data(item)
 
                 ###TODO: Add source/quality of each item
                 nq_craft_cost += min(x for x in [item["shop_total"], item["nq_total"], item["hq_total"]] if x is not None)
@@ -274,7 +273,7 @@ def fetch_universalis(item_id: int, region: str = "Japan") -> Optional[dict]:
     #     return None
 
 if __name__ == "__main__":
-    if os.getenv("OFFLINE_MODE").lower() in ("true", "1", "yes", "y"):
+    if config.OFFLINE_MODE:
         logger.info("Running in offline mode; skipping CSV updates from GitHub repo")
     else:
         update_db.main()
