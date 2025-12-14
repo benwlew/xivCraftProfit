@@ -352,10 +352,11 @@ def print_ingredients(df: pl.DataFrame) -> int:
                 if k.lower() == "id":
                     with ingr_grid[(row, 1)]:
                         if int(v) in recipe_list["result_id"].to_list():
-                            st.markdown(f"[{v}](/?id={v})")
-                            # if id_button:
-                            #     st.session_state.default_item_index = selectbox_recipe_list.select(pl.col("result_id").index_of(v))[0,0]
-                            #     st.rerun()
+                            # st.markdown(f"[{v}](/?id={v})")
+                            id_button = st.button(v, type="secondary")
+                            if id_button:
+                                st.session_state.default_item_index = selectbox_recipe_list.select(pl.col("result_id").index_of(v))[0,0]
+                                st.rerun()
                         else:
                             st.write(v)
                 if k.lower() == "amount":
@@ -520,7 +521,7 @@ if __name__ == "__main__":
 
     
     if "default_item_index" not in st.session_state:
-        # Pass id parameter from url if available
+        # Pass id parameter from url if available - doesn't seem to be working on streamlit cloud
         try:
             st.session_state.default_item_index = selectbox_recipe_list.select(pl.col("result_id").index_of(st.query_params["id"]))[0,0]
         except:
