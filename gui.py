@@ -15,12 +15,12 @@ import polars as pl
 import streamlit as st
 
 
-config.DB_NAME = "ffxiv_price.duckdb"
+DB_NAME = "ffxiv_price.duckdb"
 
 
 @st.cache_data
 def get_all_recipes() -> pl.DataFrame:
-    with duckdb.connect(config.DB_NAME) as con:
+    with duckdb.connect(DB_NAME) as con:
         query = """SELECT *, CONCAT(result_name, ' (', result_id, ')') as result_text from  recipe_price"""
         df = con.sql(query).pl()
     return df
@@ -30,7 +30,7 @@ def get_all_recipes() -> pl.DataFrame:
 def get_recipe_items(item_id: int) -> pl.DataFrame:
     # Get all item IDs to be passed to API request
 
-    with duckdb.connect(config.DB_NAME) as con:
+    with duckdb.connect(DB_NAME) as con:
         query = f"""SELECT * from recipe_price where result_id = '{item_id}' """
         df = con.sql(query).pl()
         ingr_data = df.to_dicts()
@@ -123,7 +123,7 @@ def join_dfs(lookup_items_df: pl.DataFrame, prices_df: pl.DataFrame) -> pl.DataF
         prices_df, on="id", maintain_order="left"
     ).with_row_index()
 
-    with duckdb.connect(config.DB_NAME) as con:
+    with duckdb.connect(DB_NAME) as con:
         query = f"""--sql
         SELECT combined_df.*, name, icon, canbehq from combined_df left join imported.item on combined_df.id = item."#" order by index
         """
