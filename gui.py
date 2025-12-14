@@ -1,8 +1,11 @@
 """
 TODO
-- add velocities
-- Handle multiple servers
+- Handle multiple regions/servers
 - Host online
+- Add st.query_params to allow sharing of specific item links
+- Add item images?
+- Add item source, e.g. currency if vendor
+- Add item number dependencies for number_input (never exceed total needed); not sure how to implement
 """
 
 from typing import List, Optional, Dict, Union
@@ -10,7 +13,8 @@ import duckdb
 import requests
 import polars as pl
 import streamlit as st
-# import json
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
+
 
 import config
 
@@ -36,7 +40,6 @@ def get_recipe_items(item_id: int) -> pl.DataFrame:
 
     lookup_items = {"id": [], "ingredient_of": [], "amount": [], "shop_price": []}
     temp = []
-    ### TODO Make recursive
     ## Get IDs where >0; save to a list
     for k, v in ingr_data[0].items():
         if "_" in k and k.split("_")[1] == "id" and v > 0:
@@ -114,12 +117,6 @@ def price_lookup(lookup_items_df: pl.DataFrame, region: str = "Japan") -> pl.Dat
 
     market_data = pl.from_dict(market_data)
     return market_data
-    ### TODO LEFT JOIN market_data onto table
-
-    ### TODO Add multiple regions recursive
-    ### TODO Make recursive
-    ### TODO Add item images?
-    ### TODO Add item source, e.g. currency if vendor
 
 
 def join_dfs(lookup_items_df: pl.DataFrame, prices_df: pl.DataFrame) -> pl.DataFrame:
@@ -136,7 +133,7 @@ def join_dfs(lookup_items_df: pl.DataFrame, prices_df: pl.DataFrame) -> pl.DataF
     return combined_df
 
 
-def print_result(df: pl.DataFrame)->int:
+def print_result(df: pl.DataFrame) -> int:
     ### Create grid for item
     result_grid = {}
     for x in range(2):
@@ -150,9 +147,15 @@ def print_result(df: pl.DataFrame)->int:
     result_grid[(row, 0)].markdown("**Item**")
     result_grid[(row, 1)].markdown("**ID**")
     result_grid[(row, 2)].markdown("**Number per craft**")
-    result_grid[(row, 3)].markdown("**Shop price**",help="Number in parentheses is single item cost")
-    result_grid[(row, 4)].markdown("**NQ Price**",help="Number in parentheses is single item cost")
-    result_grid[(row, 5)].markdown("**HQ Price**",help="Number in parentheses is single item cost")
+    result_grid[(row, 3)].markdown(
+        "**Shop price**"
+    )
+    result_grid[(row, 4)].markdown(
+        "**NQ Price**"
+    )
+    result_grid[(row, 5)].markdown(
+        "**HQ Price**"
+    )
 
     df_dict = df.to_dicts()
     # df_dict
@@ -168,23 +171,23 @@ def print_result(df: pl.DataFrame)->int:
                 with result_grid[(row, 3)]:
                     if k.lower() == "shop_price":
                         if v is None:
-                            st.write(":red[No Shop]")
+                            st.write(":red[N/A  \n(Not sold in shop)]")
                         else:
                             st.write(f"{v:,}")
                 with result_grid[(row, 4)]:
                     if k.lower() == "nq_price":
                         if v is None:
-                            st.write(":red[No NQ]")
+                            st.write(":red[N/A  \n(No NQ available)]")
                         else:
                             st.write(f"{v:,}")
-                            st.write(f"Velocity: {item["nq_velocity"]:,}/day")
+                            st.write(f"Velocity: {item['nq_velocity']:,}/day")
                 with result_grid[(row, 5)]:
                     if k.lower() == "hq_price":
                         if v is None:
-                            st.write(":red[No HQ]")
+                            st.write(":red[N/A  \n(No HQ available)]")
                         else:
                             st.write(f"{v:,}")
-                            st.write(f"Velocity: {item["hq_velocity"]:,}/day")
+                            st.write(f"Velocity: {item['hq_velocity']:,}/day")
     try:
         hq_velocity = df[0]["hq_velocity"][0]
     except:
@@ -234,7 +237,7 @@ def print_metrics(item_id: str, df: pl.DataFrame, craft_cost_total: int) -> floa
                 st.metric(
                     f"Craft Cost",
                     f"{craft_cost_total:,} ({craft_cost_each:,})",
-                    help="Number in parentheses is single item cost"
+                    help="Number in parentheses is single item cost",
                 )
     with metric_col2:
         with st.container(border=True):
@@ -280,32 +283,34 @@ def print_metrics(item_id: str, df: pl.DataFrame, craft_cost_total: int) -> floa
     return pl_perc
 
 
-def print_warning(pl_perc: float, velocity: int) -> None:
+def print_pl_warning(pl_perc: float) -> None:
     if pl_perc < 0:
         st.error(
             f"Buying ingredients and crafting this item will result in a loss: {pl_perc:,.2%}",
-            icon="🔥"
+            icon="🔥",
         )
-    elif pl_perc < 0.2:
+    elif pl_perc < 0.25:
         st.warning(f"Low profit margin (below 25%): {pl_perc:,.2%}", icon="🚨")
     else:
         st.success(f"Profit above 25%: {pl_perc:,.2%}", icon="🥳")
 
+
+def print_velocity_warning(velocity: int) -> None:
     if velocity < 15:
-        st.error(
-            f"Item won't sell: {velocity:,}/day",
-            icon="🔥"
-        )
+        st.error(f"Item won't sell: {velocity:,}/day", icon="🔥")
     elif velocity < 99:
         st.warning(f"Item will sell really slowly: {velocity:,}/day", icon="🚨")
     else:
         st.success(f"Item will sell: {velocity:,}/day", icon="🥳")
 
+
 @st.fragment
 def print_ingredients(df: pl.DataFrame) -> int:
     st.markdown("")
     st.markdown("# Ingredients")
-    st.text("All items are set to NQ by default, but can be adjusted. The cost will update dynamically as item amounts are changed.\nEach column is set to max out at the number needed, but it is possible to increase numbers over this limit when using multiple columns; to avoid this, users should lower NQ after increasing HQ and vice versa.")
+    st.text(
+        "All items are set to NQ by default, but can be adjusted. The cost will update dynamically as item amounts are changed.  \nEach column is set to max out at the number needed, but it is possible to increase numbers over this limit when using multiple columns; to avoid this, users should lower NQ after increasing HQ and vice versa."
+    )
     st.markdown("")
     ### Create grid for items
     ingr_grid = {}
@@ -318,16 +323,26 @@ def print_ingredients(df: pl.DataFrame) -> int:
 
     row = 0
     ingr_grid[(row, 0)].markdown("**Ingredient**")
-    ingr_grid[(row, 1)].markdown("**ID**")
-    ingr_grid[(row, 2)].markdown("**Number Needed**")
-    ingr_grid[(row, 3)].markdown("**Shop price**",help="Number in parentheses is single item cost")
-    ingr_grid[(row, 4)].button("**NQ**", help="Click to set all to NQ; Number in parentheses is single item cost", type="tertiary")
-    ingr_grid[(row, 5)].button("**HQ**", help="Click to set all to HQ; Number in parentheses is single item cost", type="tertiary")
+    ingr_grid[(row, 1)].markdown("**ID**", help="Click link to lookup item profit/loss of subcraft (opens in new tab)")
+    ingr_grid[(row, 2)].markdown("**Required**")
+    ingr_grid[(row, 3)].markdown(
+        "**Shop price**", help="Number in parentheses is single item cost"
+    )
+    ### TODO Buttons to set all don't work yet
+    ingr_grid[(row, 4)].button(
+        "**NQ**",
+        help="Click to set all to NQ",
+        type="tertiary",
+    )
+    ingr_grid[(row, 5)].button(
+        "**HQ**",
+        help="Click to set all to HQ; Number in parentheses is single item cost",
+        type="tertiary",
+    )
     ingr_grid[(row, 6)].markdown("**Cost**")
 
     craft_cost_total = 0
     df_dict = df.to_dicts()
-    # df_dict
     for row, item in enumerate(df_dict, start=0):
         row_cost = 0
         if item["ingredient_of"] == None:
@@ -337,13 +352,20 @@ def print_ingredients(df: pl.DataFrame) -> int:
                 if k.lower() == "name":
                     ingr_grid[(row, 0)].write(v)
                 if k.lower() == "id":
-                    ingr_grid[(row, 1)].write(v)
+                    with ingr_grid[(row, 1)]:
+                        if int(v) in recipe_list["result_id"].to_list():
+                            st.markdown(f"[{v}](/?id={v})")
+                            # if id_button:
+                            #     st.session_state.default_item_index = selectbox_recipe_list.select(pl.col("result_id").index_of(v))[0,0]
+                            #     st.rerun()
+                        else:
+                            st.write(v)
                 if k.lower() == "amount":
                     ingr_grid[(row, 2)].write(f"{v}")
                 with ingr_grid[(row, 3)]:
                     if k.lower() == "shop_price":
                         if v is None:
-                            st.write(":red[No Shop]")
+                            st.write(":red[N/A  \n(Not sold in shop)]")
                         else:
                             shop_qty = st.number_input(
                                 "num_shop",
@@ -353,12 +375,12 @@ def print_ingredients(df: pl.DataFrame) -> int:
                                 label_visibility="hidden",
                             )
                             shop_total = item["shop_price"] * shop_qty
-                            st.write(f"{shop_total:,} ({v:,})")
+                            st.write(f"{shop_total:,} gil ({v:,} gil each)")
                             row_cost += shop_total
                 with ingr_grid[(row, 4)]:
                     if k.lower() == "nq_price":
                         if v is None:
-                            st.write(":red[No NQ]")
+                            st.write(":red[N/A  \n(No NQ available)]")
                         else:
                             nq_qty = st.number_input(
                                 "num_nq",
@@ -369,13 +391,13 @@ def print_ingredients(df: pl.DataFrame) -> int:
                                 label_visibility="hidden",
                             )
                             nq_total = item["nq_price"] * nq_qty
-                            st.write(f"{nq_total:,} ({v:,})")
-                            st.write(f"Velocity: {item["nq_velocity"]:,}/day")
+                            st.write(f"{nq_total:,} gil ({v:,} gil each)")
+                            st.write(f"Velocity: {item['nq_velocity']:,}/day")
                             row_cost += nq_total
                 with ingr_grid[(row, 5)]:
                     if k.lower() == "hq_price":
                         if v is None:
-                            st.write(":red[No HQ]")
+                            st.write(":red[N/A  \n(No HQ available)]")
                         else:
                             hq_qty = st.number_input(
                                 "num_hq",
@@ -385,8 +407,8 @@ def print_ingredients(df: pl.DataFrame) -> int:
                                 label_visibility="hidden",
                             )
                             hq_total = item["hq_price"] * hq_qty
-                            st.write(f"{hq_total:,} ({v:,})")
-                            st.write(f"Velocity: {item["nq_velocity"]:,}/day")
+                            st.write(f"{hq_total:,} gil ({v:,} gil each)")
+                            st.write(f"Velocity: {item['nq_velocity']:,}/day")
                             row_cost += hq_total
             ingr_grid[(row, 6)].write(f"{row_cost:,}")
         craft_cost_total += row_cost
@@ -400,43 +422,129 @@ def print_ingredients(df: pl.DataFrame) -> int:
         )
     st.write(f"#### Total ingredient cost (each): :red[{craft_cost_each} gil]")
 
+    with cont_analysis:
+        pl_perc = print_metrics(item_id, combined_df, craft_cost_total)
+
+    with cont_pl_warning:
+        print_pl_warning(pl_perc)
+
     return craft_cost_total
+
+@st.fragment
+def print_ingredients_table(df: pl.DataFrame) -> int:
+
+    st.markdown("### Test for ingredient data editor")
+    
+    cleaned_output_df = df
+    cleaned_output_df = cleaned_output_df.with_columns(
+        pl.lit(None).alias("shop_amount"),
+        pl.lit(None).alias("shop_cost"),
+        pl.col("amount").alias("nq_amount"),
+        pl.lit(None).alias("nq_cost"),
+        pl.lit(None).alias("hq_amount"),
+        pl.lit(None).alias("hq_cost"),
+        pl.lit(None).alias("total_cost"),
+    )
+
+    cleaned_output_df = cleaned_output_df.select(
+        [
+            pl.col("Name"),
+            pl.col("amount").alias("Required"),
+            pl.col("shop_price").alias("Shop Price"),
+            pl.col("shop_amount").alias("Shop Amount"),
+            pl.col("shop_cost").alias("Shop Cost"),
+            pl.col("nq_price").alias("NQ Price"),
+            pl.col("nq_amount").alias("NQ Amount"),
+            pl.col("nq_cost").alias("NQ Cost"),
+            pl.col("nq_velocity").alias("NQ Velocity"),
+            pl.col("hq_price").alias("HQ Price"),
+            pl.col("hq_amount").alias("HQ Amount"),
+            pl.col("hq_cost").alias("HQ Cost"),
+            pl.col("hq_velocity").alias("HQ Velocity"),
+            pl.col("total_cost").alias("Total Cost"),
+        ]
+    ).slice(1,None)
+    
+    def grid_update(editable_df: pl.DataFrame) -> pl.DataFrame:
+        editable_df = editable_df.with_columns(
+            (pl.col("Shop Price").cast(pl.Int64) * pl.col("Shop Amount").cast(pl.Int64)).alias("Shop Cost"))
+        editable_df = editable_df.with_columns(
+            (pl.col("NQ Price").cast(pl.Int64) * pl.col("NQ Amount").cast(pl.Int64)).alias("NQ Cost"))
+        editable_df = editable_df.with_columns(
+            (pl.col("HQ Price").cast(pl.Int64) * pl.col("HQ Amount").cast(pl.Int64)).alias("HQ Cost"))
+        editable_df = editable_df.with_columns(pl.sum_horizontal("Shop Cost", "NQ Cost", "HQ Cost").alias("Total Cost"))
+        return editable_df
+
+    if "ingredients_df" not in st.session_state:
+        st.session_state.ingredients_df = cleaned_output_df
+        st.session_state.ingredients_df = grid_update(st.session_state.ingredients_df)
+    
+    editable_df = st.data_editor(st.session_state.ingredients_df,
+                             disabled=["Name", "Required", "Shop Price", "Shop Cost", "NQ Price", "NQ Cost", "NQ Velocity",
+                                        "HQ Price", "HQ Cost", "HQ Velocity", "Total Cost"],
+                                        key="ingredient_data_editor")
+
+
+
+    if not editable_df.equals(st.session_state.ingredients_df):
+        editable_df = grid_update(editable_df)
+        st.session_state.ingredients_df = editable_df
+        # editable_df
+        st.rerun()
+    
+
 
 
 if __name__ == "__main__":
-    st.set_page_config(layout="wide")
+    st.set_page_config(layout="wide", page_title="FFXIV Crafting Profit/Loss Checker")
 
     recipe_list = get_all_recipes()  ### List of recipes for all craftable items in game
     selectbox_recipe_list = recipe_list.select(["result_text", "result_id"])
-
-    ### TODO Implement Region
-    # with st.container(horizontal_alignment="right"):
 
     col1, col2 = st.columns(2)
     with col1:
         st.title("FFXIV Crafting Profit/Loss Checker")
     st.markdown("")
+    
     with col2:
         with st.container(horizontal_alignment="right"):
-            region_selectbox = st.selectbox("Select region", "Japan", width=120)
+            region_selectbox = st.selectbox("Select region", "Japan", width=200)
 
-    st.text(
-        "Select recipe to check if better value to craft from ingredients or buy from marketboard.\nNumber in parentheses is item id."
-    )
+    col1, col2 = st.columns(2)
+    with col1:
+        st.text(
+            "Select recipe to check if better value to craft from ingredients or buy from marketboard.  \nNumber in parentheses is item id."
+        )
+
+    with col2:
+        with st.container(horizontal_alignment="right", vertical_alignment="top"):
+            region_selectbox = st.selectbox("Select server", "Masamune", width=200)
+
+    
+    if "default_item_index" not in st.session_state:
+        # Pass id parameter from url if available
+        try:
+            st.session_state.default_item_index = selectbox_recipe_list.select(pl.col("result_id").index_of(st.query_params["id"]))[0,0]
+        except:
+            st.session_state.default_item_index = None
+        
     item_selectbox = st.selectbox(
-        "label", options=selectbox_recipe_list, index=None, label_visibility="hidden"
+        "label", options=selectbox_recipe_list["result_text"], index=st.session_state.default_item_index, label_visibility="hidden"
     )
 
     if item_selectbox:
         item_id = selectbox_recipe_list.filter(
             pl.col("result_text") == item_selectbox
         ).select("result_id")
-        item_id = item_id[0, 0]
+        item_id = item_id[0, 0]       
+        st.set_page_config(layout="wide", page_title=item_selectbox)
 
-        cont_warning = st.container()
-        cont_analysis = st.container()
-        cont_result = st.container()
-        cont_ingr = st.container()
+        cont_pl_warning = st.empty()
+        cont_velocity_warning = st.empty()
+        cont_analysis = st.empty()
+        cont_result = st.empty()
+        cont_ingr = st.empty()
+        cont_ingr_table = st.container()
 
         lookup_items_df = get_recipe_items(item_id)
         # lookup_items_df
@@ -447,32 +555,34 @@ if __name__ == "__main__":
 
         with cont_ingr:
             craft_cost_total = print_ingredients(combined_df)
-
+        # with cont_ingr_table:
+        #     print_ingredients_table(combined_df)
         with cont_result:
             velocity = print_result(combined_df)
         with cont_analysis:
             pl_perc = print_metrics(item_id, combined_df, craft_cost_total)
-        with cont_warning:
-            print_warning(pl_perc, velocity)
-        
+        with cont_pl_warning:
+            print_pl_warning(pl_perc)
+        with cont_velocity_warning:
+            print_velocity_warning(velocity)
 
 
 ### TODO number_input dependencies
-"""
-TOTAL = 100
-
-def update(last):
-    change = ss.A + ss.B + ss.C - TOTAL
-    sliders = ['A','B','C']    
-    last = sliders.index(last)
-    # Modify to 'other two'
-    # Add logic here to deal with rounding and to protect against edge cases (if one of the 'others'
-    # doesn't have enough room to accomodate the change)
-    ss[sliders[(last+1)%3]] -= change/2
-    ss[sliders[(last+2)%3]] -= change/2
 
 
-st.number_input('A', key='A', min_value=0, max_value=100, value = 50, on_change=update, args=('A',))
-st.number_input('B', key='B', min_value=0, max_value=100, value = 25, on_change=update, args=('B',))
-st.number_input('C', key='C', min_value=0, max_value=100, value = 25, on_change=update, args=('C',))
-"""
+# TOTAL = 100
+
+# def update(last):
+#     change = ss.A + ss.B + ss.C - TOTAL
+#     sliders = ['A','B','C']
+#     last = sliders.index(last)
+#     # Modify to 'other two'
+#     # Add logic here to deal with rounding and to protect against edge cases (if one of the 'others'
+#     # doesn't have enough room to accomodate the change)
+#     ss[sliders[(last+1)%3]] -= change/2
+#     ss[sliders[(last+2)%3]] -= change/2
+
+
+# st.number_input('A', key='A', min_value=0, max_value=100, value = 50, on_change=update, args=('A',))
+# st.number_input('B', key='B', min_value=0, max_value=100, value = 25, on_change=update, args=('B',))
+# st.number_input('C', key='C', min_value=0, max_value=100, value = 25, on_change=update, args=('C',))

@@ -6,6 +6,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 import duckdb
 import polars as pl
+import os
 
 import config
 from utils import utils
