@@ -1,6 +1,6 @@
 """
 TODO
-- Handle multiple regions/servers
+- Handle multiple regions
 - Add item images?
 - Add item source, e.g. currency if vendor
 - Add item number dependencies for number_input (never exceed total needed); not sure how to implement
@@ -75,7 +75,7 @@ def price_lookup(lookup_items_df: pl.DataFrame, region: str = "Japan") -> pl.Dat
             "fields": "items.nqSaleVelocity,items.hqSaleVelocity,items.listings.pricePerUnit,items.listings.onMannequin,listings.worldName",
         }
         response = requests.get(url, params=parameters)
-        response.raise_for_status()
+        # response.raise_for_status()
         if hq:
             raw_market_data["hq"] = response.json()
         else:
