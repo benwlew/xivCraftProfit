@@ -8,8 +8,8 @@ jobs:
   Update-db:
     runs-on: ubuntu-latest
     environment: production
-    # permissions:
-    #   contents: write
+    permissions:
+      contents: write
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
