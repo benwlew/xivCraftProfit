@@ -7,9 +7,11 @@ from datetime import datetime, timezone
 import duckdb
 import polars as pl
 import os
-
-import config
+from dotenv import load_dotenv
 from utils import utils
+
+load_dotenv(dotenv_path='./.env.local')
+GH_TOKEN  = os.getenv("GH_TOKEN")
 
 logger = utils.setup_logger(__name__)
 csv_files =["Item.csv", "ItemFood.csv", "ItemLevel.csv", "ItemSearchCategory.csv",
@@ -47,7 +49,7 @@ def git_last_updated(file: str) -> Optional[datetime]:
         Optional[datetime]: The last commit time in UTC, or None if request fails
     """
     url = f"https://api.github.com/repos/xivapi/ffxiv-datamining/commits?path=csv/{file}"
-    headers = {"Authorization": f"Bearer {config.GH_TOKEN}"}
+    headers = {"Authorization": f"Bearer {GH_TOKEN}"}
     
     try:
         response = requests.get(url, headers=headers)
@@ -68,7 +70,7 @@ def save_csv(file: str) -> bool:
         bool: True if successful, False otherwise
     """
     url = f"https://github.com/xivapi/ffxiv-datamining/blob/master/csv/{file}?raw=true"
-    headers = {"Authorization": f"Bearer {config.GH_TOKEN}"}
+    headers = {"Authorization": f"Bearer {GH_TOKEN}"}
     try:
         response = requests.get(url, headers=headers)
         response.raise_for_status()
@@ -165,10 +167,5 @@ def main():
         raise
 
 if __name__ == "__main__":
-    # Offline mode check in this module no longer necessary as this is now checked in main.py
-    if config.OFFLINE_MODE:
-        logger.info("Running in offline mode; skipping CSV updates from GitHub repo")
-        tables_to_update = list(csv_files)  # Use locally cached files in offline mode
-    else:
-        main()
+    main()
 
