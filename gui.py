@@ -569,4 +569,4 @@ if __name__ == "__main__":
             with cont_pl_warning:
                 print_pl_warning(pl_perc)
             with cont_velocity_warning:
-                print_velocity_warning(velocity)
+                print_velocity_warning(total_velocity)
