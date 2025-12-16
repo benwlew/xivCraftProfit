@@ -5,7 +5,7 @@ on:
   schedule:
     - cron: '0 0 * * *'  # Runs every day at midnight
 jobs:
-  Explore-GitHub-Actions:
+  Update-db:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -21,14 +21,13 @@ jobs:
         run: |
           python update_db.py
         env:
-            GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
       - name: commit files
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add -A
           git diff-index --quiet HEAD || (git commit -a -m "updated logs" --allow-empty)
-          
       - name: push changes
         uses: ad-m/github-push-action@v0.6.0
         with:
