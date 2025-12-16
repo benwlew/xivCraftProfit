@@ -8,8 +8,8 @@ jobs:
   Update-db:
     runs-on: ubuntu-latest
     environment: production
-    permissions:
-      contents: write
+    # permissions:
+    #   contents: write
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -34,5 +34,5 @@ jobs:
       - name: Push changes
         uses: ad-m/github-push-action@v0.6.0
         with:
-          github_token: ${{ secrets.GH_TOKEN_WRITE }}
+          github_token: ${{ secrets.GH_TOKEN }}
           branch: main 
