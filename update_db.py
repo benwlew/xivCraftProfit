@@ -13,6 +13,8 @@ from utils import utils
 load_dotenv(dotenv_path='./.env.local')
 GH_TOKEN  = os.getenv("GH_TOKEN")
 
+DB_NAME = "ffxiv_price.duckdb"
+
 logger = utils.setup_logger(__name__)
 csv_files =["Item.csv", "ItemFood.csv", "ItemLevel.csv", "ItemSearchCategory.csv",
         "ItemSeries.csv", "ItemSortCategory.csv", "ItemUICategory.csv",
@@ -48,6 +50,7 @@ def git_last_updated(owner:str, repo: str, file: str) -> Optional[datetime]:
     Returns:
         Optional[datetime]: The last commit time in UTC, or None if request fails
     """
+    
     url = f"https://api.github.com/repos/{owner}/{repo}/commits?path=csv/{file}"
     headers = {"Authorization": f"Bearer {GH_TOKEN}"}
     
@@ -60,7 +63,7 @@ def git_last_updated(owner:str, repo: str, file: str) -> Optional[datetime]:
         logger.error(f"Error fetching latest commit info for {file}: {e}")
         return None
 
-def save_csv(file: str) -> bool:
+def save_csv(owner: str, repo: str, file: str) -> bool:
     """Save a CSV file from GitHub.
     
     Args:
@@ -98,7 +101,7 @@ def update_csv(files: List[str]) -> List[str]:
     for file in files:
         # local_latest = local_last_updated(file)
         local_latest = git_last_updated("benwlew", "xivprofitcheck", file)
-        git_latest = git_last_updated("xivfile", "ffxiv-datamining", file)
+        git_latest = git_last_updated("xivapi", "ffxiv-datamining", file)
         
         logger.debug(f"File: {file} - Local: {local_latest}, GitHub: {git_latest}")
         
@@ -107,7 +110,7 @@ def update_csv(files: List[str]) -> List[str]:
             break
         elif (local_latest is None) or (git_latest > local_latest):
             logger.info(f"Updating {file} from GitHub...")
-            if save_csv(file):
+            if save_csv("xivapi", "ffxiv-datamining", file):
                 updated_csv.append(file)
                 logger.info(f"Updated {file}")
             else:
@@ -129,7 +132,7 @@ def update_duckdb(updated_files: List[str]) -> None:
         updated_files: List of files that need to be updated in the database
     """
     
-    with duckdb.connect(config.DB_NAME) as db:
+    with duckdb.connect(DB_NAME) as db:
         for file in updated_files:
             filename = os.path.splitext(file)[0]
             logger.debug(f"Processing {filename} for database update")
