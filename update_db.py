@@ -100,7 +100,7 @@ def update_csv(files: List[str]) -> List[str]:
     updated_csv = []
     for file in files:
         # local_latest = local_last_updated(file)
-        local_latest = git_last_updated("benwlew", "xivprofitcheck", file)
+        local_latest = git_last_updated("benwlew", "xivcraftprofit", file)
         git_latest = git_last_updated("xivapi", "ffxiv-datamining", file)
         
         logger.debug(f"File: {file} - Local: {local_latest}, GitHub: {git_latest}")
