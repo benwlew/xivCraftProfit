@@ -85,7 +85,7 @@ def save_csv(owner: str, repo: str, file: str) -> bool:
         response.raise_for_status()
         
         os.makedirs("csv", exist_ok=True)
-        with open(fr"csv\{file}", "w", newline='',encoding='utf-8') as f:
+        with open(fr"csv/{file}", "w", newline='',encoding='utf-8') as f:
             f.write(response.text)
             
         logger.info(f"Successfully downloaded {file}")
@@ -141,7 +141,7 @@ def update_duckdb(updated_files: List[str]) -> None:
             logger.debug(f"Processing {filename} for database update")
             
             df = pl.read_csv(
-                fr"csv\{file}", 
+                fr"csv/{file}", 
                 skip_rows=1, 
                 skip_rows_after_header=1
             )
