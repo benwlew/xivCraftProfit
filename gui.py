@@ -1,5 +1,7 @@
 """
 TODO
+- Handle duplicate recipes (ARM/BSM) - list job name?
+- Make sure large numbers fit in st.metrics
 - Add item source, e.g. currency if vendor
 - Add world functionality (cheapest selling on dc vs world)
 - Add checkbox to consider p/l against NQ
@@ -521,7 +523,7 @@ if __name__ == "__main__":
         try:
             st.session_state.dc = [item.lower() for item in dc_list].index(st.query_params["dc"].lower())
         except:
-            st.session_state.dc = None
+            st.session_state.dc = 0
     
     world_list = worlds_dc_df.select("world").to_series().to_list()
     world_list.sort()
