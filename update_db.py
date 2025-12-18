@@ -10,7 +10,7 @@ import os
 from dotenv import load_dotenv
 from utils import utils
 
-load_dotenv(dotenv_path='./.env.local')
+load_dotenv(dotenv_path='./.env')
 GH_TOKEN  = os.getenv("GH_TOKEN")
 
 DB_NAME = "ffxiv_price.duckdb"
@@ -56,13 +56,12 @@ def git_last_updated(owner:str, repo: str, file: str) -> Optional[datetime]:
     
     try:
         response = requests.get(url, headers=headers)
-        if response
         response.raise_for_status()
-            try:
-                updated_datetime = datetime.fromisoformat(response.json()[0]["commit"]["author"]["date"])
-            except:
-                logger.error(f"Unexpected response format when fetching commit info for {file}")
-                return None
+        try:
+            updated_datetime = datetime.fromisoformat(response.json()[0]["commit"]["author"]["date"])
+        except:
+            logger.error(f"Unexpected response format when fetching commit info for {file}")
+            return None
         return updated_datetime
     except requests.exceptions.RequestException as e:
         logger.error(f"Error fetching latest commit info for {file}: {e}")
@@ -159,7 +158,7 @@ def update_duckdb(updated_files: List[str]) -> None:
            db.execute(fr"CREATE OR REPLACE TABLE main.recipe_price AS SELECT * FROM df")
            logger.info("Created main.recipe_price table")
 
-        with open("wolrd_dc.sql", "r") as f:
+        with open("world_dc.sql", "r") as f:
            query = f.read()
            df = db.sql(query).pl()
            db.execute(fr"CREATE OR REPLACE TABLE main.world_dc AS SELECT * FROM df")
