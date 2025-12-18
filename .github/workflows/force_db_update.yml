@@ -21,7 +21,6 @@ jobs:
           git rm -r --cached ./csv || true
           git commit -m "Remove existing CSVs" || true
           git push
-        
       - name: Download CSVs again
         env:
             github_token: ${{ secrets.GH_TOKEN }}

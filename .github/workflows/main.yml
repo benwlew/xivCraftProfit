@@ -26,13 +26,11 @@ jobs:
         run: |
           python update_db.py
       - name: Commit files
+        env:
+          github_token: ${{ secrets.GH_TOKEN }}
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add -A
           git diff-index --quiet HEAD || (git commit -a -m "Updated databases" && true)
-      - name: Push changes
-        uses: ad-m/github-push-action@v0.6.0
-        with:
-          github_token: ${{ secrets.GH_TOKEN }}
-          branch: main 
+          git push origin main
