@@ -57,11 +57,10 @@ def git_last_updated(owner:str, repo: str, file: str) -> Optional[datetime]:
     try:
         response = requests.get(url, headers=headers)
         response.raise_for_status()
-        try:
-            updated_datetime = datetime.fromisoformat(response.json()[0]["commit"]["author"]["date"])
-        except:
-            logger.error(f"Unexpected response format when fetching commit info for {file}")
+        if not response.json():
+            logger.warning(f"No commits found for {file} in {owner}/{repo}")
             return None
+        updated_datetime = datetime.fromisoformat(response.json()[0]["commit"]["author"]["date"])
         return updated_datetime
     except requests.exceptions.RequestException as e:
         logger.error(f"Error fetching latest commit info for {file}: {e}")
