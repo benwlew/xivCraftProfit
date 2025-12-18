@@ -1,10 +1,9 @@
 """
 TODO
-- Handle multiple regions
-- Add item images?
 - Add item source, e.g. currency if vendor
+- Add world functionality (cheapest selling on dc vs world)
+- Add checkbox to consider p/l against NQ
 - Add item number dependencies for number_input (never exceed total needed); not sure how to implement
-- Add server data (cheapest selling on own server, server for cheapest NQ/HQ)
 """
 
 import duckdb
@@ -23,6 +22,12 @@ def get_all_recipes() -> pl.DataFrame:
         df = con.sql(query).pl()
     return df
 
+
+def get_worlds_dc() -> pl.DataFrame:
+    with duckdb.connect(DB_NAME) as con:
+        query = """SELECT * from  world_dc"""
+        df = con.sql(query).pl()
+    return df
 
 @st.cache_data
 def get_recipe_items(item_id: int) -> pl.DataFrame:
@@ -62,7 +67,7 @@ def get_recipe_items(item_id: int) -> pl.DataFrame:
 
 
 @st.cache_data
-def price_lookup(lookup_items_df: pl.DataFrame, region: str = "Japan") -> pl.DataFrame:
+def price_lookup(lookup_items_df: pl.DataFrame, region: str) -> pl.DataFrame:
     lookup_item_ids = [x for x in lookup_items_df["id"]]
     url = f"https://universalis.app/api/v2/{region}/{','.join(lookup_item_ids)}"
 
@@ -233,25 +238,25 @@ def print_metrics(item_id: str, df: pl.DataFrame, craft_cost_total: int) -> floa
         with metric_col1:
             with st.container(border=True):
                 if df["amount"][0] == 1:
-                    st.metric(f"Craft Cost", f"{craft_cost_each:,}")
+                    st.metric(f"Craft Cost", f"{craft_cost_each:,} gil")
                 if df["amount"][0] > 1:
                     st.metric(
                         f"Craft Cost",
-                        f"{craft_cost_total:,} ({craft_cost_each:,})"
+                        f"{craft_cost_total:,} ({craft_cost_each:,} gil)"
                     )
         with metric_col2:
             with st.container(border=True):
                 if df["amount"][0] == 1:
                     st.metric(
                         f"Profit/Loss",
-                        f"{pl_each:,}",
+                        f"{pl_each:,} gil",
                         pl_perc_formatted,
                         help="Calculated agains HQ buy price - assuming that crafters will always aim for HQ",
                     )
                 if df["amount"][0] > 1:
                     st.metric(
                         f"Profit/Loss",
-                        f"{pl_total:,} ({pl_each:,})",
+                        f"{pl_total:,} gil ({pl_each:,} gil each)",
                         pl_perc_formatted,
                         help="Calculated agains HQ buy price - assuming that crafters will always aim for HQ",
                     )
@@ -260,23 +265,23 @@ def print_metrics(item_id: str, df: pl.DataFrame, craft_cost_total: int) -> floa
                 if df["amount"][0] == 1:
                     st.metric(
                         f"Cheapest price: :blue[{result_min_source.split('_')[0]}]",
-                        f"{result_min_price:,}",
+                        f"{result_min_price:,} gil",
                     )
                 elif df["amount"][0] > 1:
                     st.metric(
                         f"Cheapest price: :blue[{result_min_source.split('_')[0]}]",
-                        f"{result_min_price * amount:,} ({result_min_price:,})",
+                        f"{result_min_price * amount:,} gil ({result_min_price:,} gil each)",
                         help="Number in parentheses is single item cost",
                     )
         with metric_col5:
             with st.container(border=True):
                 if df["hq_price"] is not None:
                     if df["amount"][0] == 1:
-                        st.metric(f"HQ Price", f"{hq_price_each:,}")
+                        st.metric(f"HQ Price", f"{hq_price_each:,} gil")
                     if df["amount"][0] > 1:
                         st.metric(
                             f"HQ Price",
-                            f"{hq_price_total:,} ({hq_price_each:,})",
+                            f"{hq_price_total:,} gil ({hq_price_each:,} gil each)",
                             help="Number in parentheses is single item cost",
                         )
         return pl_perc
@@ -425,9 +430,9 @@ def print_ingredients(df: pl.DataFrame) -> int:
 
     if item["amount"] > 1:
         st.write(
-            f"#### Total ingredient cost per craftable amount ({item['amount']}): :red[{craft_cost_total}]"
+            f"#### Total ingredient cost per craftable amount ({item['amount']}): :red[{craft_cost_total:,}]"
         )
-    st.write(f"#### Total ingredient cost (each): :red[{craft_cost_each} gil]")
+    st.write(f"#### Total ingredient cost: :red[{craft_cost_each:,} gil each]")
 
     with cont_analysis:
         pl_perc = print_metrics(item_id, combined_df, craft_cost_total)
@@ -505,6 +510,26 @@ def print_ingredients_table(df: pl.DataFrame) -> int:
 if __name__ == "__main__":
     st.set_page_config(layout="wide", page_title="FFXIV Crafting Profit/Loss Checker")
 
+        
+
+    worlds_dc_df = get_worlds_dc()
+    dc_list = worlds_dc_df.select("datacentre").unique().to_series().to_list()
+    dc_list.sort()
+
+    if "dc" not in st.session_state:
+        # Pass dc parameter from url if available - doesn't seem to be working on streamlit cloud
+        try:
+            st.session_state.dc = [item.lower() for item in dc_list].index(st.query_params["dc"].lower())
+        except:
+            st.session_state.dc = None
+    
+    world_list = worlds_dc_df.select("world").to_series().to_list()
+    world_list.sort()
+    
+    def filter_world(world_list, dc):
+        world_list = worlds_dc_df.filter(pl.col("datacentre") == dc).select("world").to_series().to_list()
+        return world_list
+
     recipe_list = get_all_recipes()  ### List of recipes for all craftable items in game
     selectbox_recipe_list = recipe_list.select(["result_text", "result_id"])
 
@@ -515,7 +540,14 @@ if __name__ == "__main__":
     
     with col2:
         with st.container(horizontal_alignment="right"):
-            region_selectbox = st.selectbox("Select region", "Japan", width=200)
+            dc_selectbox = st.selectbox("Select datacentre", dc_list, index=st.session_state.dc, width=200)
+            
+            if dc_selectbox:
+                world_list = filter_world(world_list, dc_selectbox)
+                # reload page to use param url?
+            world_selectbox = st.selectbox("Select world (optional)", world_list, index=None, width=200)
+
+
     
     st.text(
         "Select recipe to check if better value to craft from ingredients or buy from marketboard.  \nNumber in parentheses is item id."
@@ -527,7 +559,9 @@ if __name__ == "__main__":
             st.session_state.default_item_index = selectbox_recipe_list.select(pl.col("result_id").index_of(st.query_params["id"]))[0,0]
         except:
             st.session_state.default_item_index = None
-        
+
+
+
     item_selectbox = st.selectbox(
         "label", options=selectbox_recipe_list["result_text"], index=st.session_state.default_item_index, label_visibility="hidden"
     )
@@ -548,7 +582,7 @@ if __name__ == "__main__":
 
         lookup_items_df = get_recipe_items(item_id)
         # lookup_items_df
-        prices_df = price_lookup(lookup_items_df)
+        prices_df = price_lookup(lookup_items_df, dc_selectbox)
         # prices_df
         combined_df = join_dfs(lookup_items_df, prices_df)
         # combined_df

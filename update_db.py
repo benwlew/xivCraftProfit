@@ -24,14 +24,7 @@ csv_files =["Item.csv", "ItemFood.csv", "ItemLevel.csv", "ItemSearchCategory.csv
 
 
 def local_last_updated(file: str) -> Optional[datetime]:
-    """Get the last update time of a local file.
-    
-    Args:
-        file (str): Name of the file to check
-        
-    Returns:
-        Optional[datetime]: The last modified time in UTC, or None if file not found
-    """
+
     file_path = Path("csv") / file
     try:
         updated_datetime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc)
@@ -102,8 +95,10 @@ def update_csv(files: List[str]) -> List[str]:
     """
     updated_csv = []
     for file in files:
-        # local_latest = local_last_updated(file)
-        local_latest = git_last_updated("benwlew", "xivcraftprofit", file)
+        if os.getenv("GITHUB_ACTIONS") == "true":
+            local_latest = git_last_updated("benwlew", "xivcraftprofit", file)
+        else:
+            local_latest = local_last_updated(file)
         git_latest = git_last_updated("xivapi", "ffxiv-datamining", file)
         
         logger.debug(f"File: {file} - Local: {local_latest}, GitHub: {git_latest}")
@@ -129,11 +124,6 @@ def update_csv(files: List[str]) -> List[str]:
     return updated_csv
 
 def update_duckdb(updated_files: List[str]) -> None:
-    """Process database updates for the updated files.
-    
-    Args:
-        updated_files: List of files that need to be updated in the database
-    """
     
     with duckdb.connect(DB_NAME) as db:
         for file in updated_files:
@@ -150,18 +140,20 @@ def update_duckdb(updated_files: List[str]) -> None:
             db.execute(fr"CREATE SCHEMA IF NOT EXISTS imported")
             db.execute(fr"CREATE OR REPLACE TABLE imported.{filename} AS SELECT * FROM df")
             logger.info(f"Updated {filename} table in database")
-    
-        with open("recipe_price.sql", "r") as f:
-           query = f.read()
-           df = db.sql(query).pl()
-           db.execute(fr"CREATE OR REPLACE TABLE main.recipe_price AS SELECT * FROM df")
-           logger.info("Created main.recipe_price table")
 
-        with open("world_dc.sql", "r") as f:
-           query = f.read()
-           df = db.sql(query).pl()
-           db.execute(fr"CREATE OR REPLACE TABLE main.world_dc AS SELECT * FROM df")
-           logger.info("Created main.world_dc table")
+        if "GilShopItem.csv" in updated_files or "Item.csv" in updated_files:
+            with open("recipe_price.sql", "r") as f:
+                query = f.read()
+                df = db.sql(query).pl()
+                db.execute(fr"CREATE OR REPLACE TABLE main.recipe_price AS SELECT * FROM df")
+                logger.info("Created main.recipe_price table")
+
+        if "World.csv" in updated_files or "WorldDCGroupType.csv" in updated_files:
+            with open("world_dc.sql", "r") as f:
+                query = f.read()
+                df = db.sql(query).pl()
+                db.execute(fr"CREATE OR REPLACE TABLE main.world_dc AS SELECT * FROM df")
+                logger.info("Created main.world_dc table")
 
 def main():
     """Main function to update database with latest FFXIV data."""
