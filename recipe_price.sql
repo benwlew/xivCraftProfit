@@ -11,7 +11,7 @@ with
         select
             recipe."#" as pk,
             --Number,
-            --CraftType,
+            classjob.abbreviation as job,
             --RecipeLevelTable,
             --v4,
             Item_Result as result_id,
@@ -72,6 +72,7 @@ with
             --IsSpecializationRequired,
             IsExpert,
             --PatchNumber,
+            i.icon
         from
             imported.recipe
             left join imported.item as i on recipe.item_result <> 0
@@ -93,10 +94,12 @@ with
             left join shop as s5 on recipe.item_ingredient_5 = s5.item
             left join shop as s6 on recipe.item_ingredient_6 = s6.item
             left join shop as s7 on recipe.item_ingredient_7 = s7.item
+            left join imported.classjob on recipe.crafttype = classjob.dohdoljobindex
         where
             recipe.item_result <> 0
             --where s.price_mid is not null
             --where s0.price_mid is not null
+            and classjob.classjobcategory = 33 --DOH
     )
 select
     *

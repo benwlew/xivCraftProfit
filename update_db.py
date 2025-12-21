@@ -16,12 +16,16 @@ GH_TOKEN  = os.getenv("GH_TOKEN")
 DB_NAME = "ffxiv_price.duckdb"
 
 logger = utils.setup_logger(__name__)
-csv_files =["Item.csv", "ItemFood.csv", "ItemLevel.csv", "ItemSearchCategory.csv",
+csv_files =["ClassJob.csv", "Item.csv", "GilShopItem.csv", "Recipe.csv", "World.csv", "WorldDCGroupType.csv",
+            ]
+ 
+"""
+ unused_csv_files ["ItemFood.csv", "ItemLevel.csv", "ItemSearchCategory.csv",
         "ItemSeries.csv", "ItemSortCategory.csv", "ItemUICategory.csv",
-        "RecipeNotebookList.csv", "Recipe.csv", "RecipeLevelTable.csv",
+        "RecipeNotebookList.csv", "RecipeLevelTable.csv",
         "RecipeLookup.csv", "RecipeNotebookList.csv", "RecipeSubCategory.csv",
-        "GilShop.csv", "GilShopInfo.csv", "GilShopItem.csv", "World.csv", "WorldDCGroupType.csv"]
-
+        "GilShop.csv", "GilShopInfo.csv"]
+"""
 
 def local_last_updated(file: str) -> Optional[datetime]:
 
@@ -130,13 +134,16 @@ def update_csv(files: List[str]) -> List[str]:
     logger.info(f"{len(updated_csv)} of {len(files)} files updated")
     if updated_csv:
         logger.debug(f"Updated files: {updated_csv}")
-    
+        updated_csv = True
+    else:
+        updated_csv = False
+
     return updated_csv
 
-def update_duckdb(updated_files: List[str]) -> None:
+def update_duckdb() -> None:
     
     with duckdb.connect(DB_NAME) as db:
-        for file in updated_files:
+        for file in csv_files:
             filename = os.path.splitext(file)[0]
             logger.debug(f"Processing {filename} for database update")
             
@@ -149,36 +156,29 @@ def update_duckdb(updated_files: List[str]) -> None:
 
             db.execute(fr"CREATE SCHEMA IF NOT EXISTS imported")
             db.execute(fr"CREATE OR REPLACE TABLE imported.{filename} AS SELECT * FROM df")
-            logger.info(f"Updated {filename} table in database")
+            logger.info(f"Updated imported.{filename} table in database")
 
-        if "GilShopItem.csv" in updated_files or "Item.csv" in updated_files:
-            with open("recipe_price.sql", "r") as f:
-                query = f.read()
-                df = db.sql(query).pl()
-                db.execute(fr"CREATE OR REPLACE TABLE main.recipe_price AS SELECT * FROM df")
-                logger.info("Created main.recipe_price table")
+        with open("recipe_price.sql", "r") as f:
+            query = f.read()
+            df = db.sql(query).pl()
+            db.execute(fr"CREATE OR REPLACE TABLE main.recipe_price AS SELECT * FROM df")
+            logger.info("Created main.recipe_price table")
 
-        if "World.csv" in updated_files or "WorldDCGroupType.csv" in updated_files:
-            with open("world_dc.sql", "r") as f:
-                query = f.read()
-                df = db.sql(query).pl()
-                db.execute(fr"CREATE OR REPLACE TABLE main.world_dc AS SELECT * FROM df")
-                logger.info("Created main.world_dc table")
+        with open("world_dc.sql", "r") as f:
+            query = f.read()
+            df = db.sql(query).pl()
+            db.execute(fr"CREATE OR REPLACE TABLE main.world_dc AS SELECT * FROM df")
+            logger.info("Created main.world_dc table")
 
 def main():
     """Main function to update database with latest FFXIV data."""
-    tables_to_update = update_csv(csv_files)
+    db_update_required = update_csv(csv_files)
 
-    try:
-        if tables_to_update:
-            update_duckdb(tables_to_update)  # Pass list of files to write to DuckDB
-            logger.info("Database update completed successfully")
-        else:
-            logger.info("No database updates needed")
-            
-    except Exception as e:
-        logger.error(f"Error in main execution: {e}", exc_info=True)
-        raise
+    if db_update_required:
+        update_duckdb()  # Pass list of files to write to DuckDB
+        logger.info("Database update completed successfully")
+    else:
+        logger.info("No database updates needed")
 
 if __name__ == "__main__":
     main()
