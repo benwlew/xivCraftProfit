@@ -1,6 +1,6 @@
 """
 TODO
-- Fix broken redirects + parameters on github !!!
+- Fix broken redirects + parameters on streamlit cloud; point directly at weburl??
 - Add world functionality (cheapest selling on dc vs world)
 - Add checkbox to consider p/l against NQ
 - Add item source, e.g. currency if vendor; SpecialShop.csv - nontrivial effort
@@ -13,6 +13,7 @@ import polars as pl
 import streamlit as st
 
 DB_NAME = "ffxiv_price.duckdb"
+home_page = st.Page("app.py")
 
 @st.cache_data
 def get_worlds_dc() -> pl.DataFrame:
@@ -584,7 +585,7 @@ if __name__ == "__main__":
             pass
         else:
             st.session_state.item = item_id
-            st.switch_page("app.py", query_params={"dc":dc_selectbox, "item":item_id})
+            st.switch_page(home_page, query_params={"dc":dc_selectbox, "item":item_id})
         
         st.set_page_config(layout="wide", page_title=item_selectbox)
 
@@ -619,7 +620,7 @@ if __name__ == "__main__":
         else:
             st.session_state.dc = dc_selectbox
             try:
-                st.switch_page("app.py", query_params={"dc":dc_selectbox, "item":item_id})
+                st.switch_page(home_page, query_params={"dc":dc_selectbox, "item":item_id})
             except:
-                st.switch_page("app.py", query_params={"dc":dc_selectbox, "item":None})
+                st.switch_page(home_page, query_params={"dc":dc_selectbox, "item":None})
 
