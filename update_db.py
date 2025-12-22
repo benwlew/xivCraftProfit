@@ -24,7 +24,7 @@ csv_files =["ClassJob.csv", "Item.csv", "GilShopItem.csv", "Recipe.csv", "World.
         "ItemSeries.csv", "ItemSortCategory.csv", "ItemUICategory.csv",
         "RecipeNotebookList.csv", "RecipeLevelTable.csv",
         "RecipeLookup.csv", "RecipeNotebookList.csv", "RecipeSubCategory.csv",
-        "GilShop.csv", "GilShopInfo.csv"]
+        "GilShop.csv", "GilShopInfo.csv", ]
 """
 
 def local_last_updated(file: str) -> Optional[datetime]:
