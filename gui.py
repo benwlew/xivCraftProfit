@@ -515,7 +515,6 @@ if __name__ == "__main__":
     # Create sidebar for settings
     
     with st.sidebar:
-        dc_list
         dc_selectbox = st.selectbox(
             label="Select datacentre", options=dc_list, index=[dc.lower() for dc in dc_list].index(st.session_state.dc.lower())
         )
