@@ -584,7 +584,7 @@ if __name__ == "__main__":
             pass
         else:
             st.session_state.item = item_id
-            st.switch_page("gui.py", query_params={"dc":dc_selectbox, "item":item_id})
+            st.switch_page("app.py", query_params={"dc":dc_selectbox, "item":item_id})
         
         st.set_page_config(layout="wide", page_title=item_selectbox)
 
@@ -619,7 +619,7 @@ if __name__ == "__main__":
         else:
             st.session_state.dc = dc_selectbox
             try:
-                st.switch_page("gui.py", query_params={"dc":dc_selectbox, "item":item_id})
+                st.switch_page("app.py", query_params={"dc":dc_selectbox, "item":item_id})
             except:
-                st.switch_page("gui.py", query_params={"dc":dc_selectbox, "item":None})
+                st.switch_page("app.py", query_params={"dc":dc_selectbox, "item":None})
 
