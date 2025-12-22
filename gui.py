@@ -1,5 +1,6 @@
 """
 TODO
+- Fix broken redirects + parameters on github !!!
 - Add world functionality (cheapest selling on dc vs world)
 - Add checkbox to consider p/l against NQ
 - Add item source, e.g. currency if vendor; SpecialShop.csv - nontrivial effort
@@ -514,8 +515,9 @@ if __name__ == "__main__":
     # Create sidebar for settings
     
     with st.sidebar:
+        dc_list
         dc_selectbox = st.selectbox(
-            label="Select datacentre", options=dc_list, index=dc_list.index(st.session_state.dc)
+            label="Select datacentre", options=dc_list, index=[dc.lower() for dc in dc_list].index(st.session_state.dc.lower())
         )
    
         world_selectbox = st.selectbox(
@@ -617,5 +619,8 @@ if __name__ == "__main__":
             world_list = filter_world(world_list, dc_selectbox)
         else:
             st.session_state.dc = dc_selectbox
-            st.switch_page("gui.py", query_params={"dc":dc_selectbox, "item":item_id})
+            try:
+                st.switch_page("gui.py", query_params={"dc":dc_selectbox, "item":item_id})
+            except:
+                st.switch_page("gui.py", query_params={"dc":dc_selectbox, "item":None})
 
