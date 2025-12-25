@@ -1,6 +1,5 @@
 """
 TODO
-- Fix warning banners
 - Add item source, e.g. currency if vendor; SpecialShop.csv; nontrivial effort
 - Add Japanese language support; not sure where source is
 - Support recursive crafts (subcrafts); not sure how to implement
@@ -11,6 +10,7 @@ import requests
 import polars as pl
 import streamlit as st
 import time
+from dataclasses import dataclass
 
 ### Configuration variables
 DB_NAME = "ffxiv_price.duckdb"
@@ -79,7 +79,7 @@ def get_prices_from_universalis(lookup_items_df: pl.DataFrame, region: str) -> p
 
         # Unpivot and unnest json data
         data = response.json()["items"]
-        df = pl.DataFrame(data).unpivot(variable_name="id").unnest("value")
+        df = pl.DataFrame(data).lazy().unpivot(variable_name="id").unnest("value")
         df = df.explode("listings").unnest("listings")
 
         # Filter out Mannquin items (irrelevant listings)
@@ -112,46 +112,96 @@ def get_prices_from_universalis(lookup_items_df: pl.DataFrame, region: str) -> p
         
 
     prices_df = nq_df.join(hq_df, on="id").sort("id").rename({"id":"item_id"})
-    prices_df = prices_df.with_columns(pl.col("item_id").cast(pl.Int64))
-    return prices_df
+    prices_df = prices_df.with_columns(pl.col("item_id").cast(pl.Int64)).collect()
+
+
+    # Join data from universalis lookup onto exist data from local duckdb
+    df = lookup_items_df.lazy().join(prices_df.lazy(), on="item_id", how="left")
+    df = df.with_columns(pl.min_horizontal("shop_price", "nq_price", "hq_price").alias("cheapest"))
+
+    # Aggregate to find cheapest source for each item
+    cheapest_source_df = (
+        df.select(pl.col("item_id", "shop_price", "nq_price", "nq_world", "hq_price", "hq_world"))
+        .unpivot(on=["hq_price", "shop_price", "nq_price"], index="item_id", variable_name="source", value_name="price")
+        .sort(["item_id", "price"]).drop_nulls().unique("item_id", keep="first")
+    )
+
+    df = df.join(cheapest_source_df.select(pl.col("item_id", "source")), on="item_id", how="left")
+    df = df.collect()
+    if "source" in df.columns:
+        df = df.rename({"source": "cheapest_source"})
+
+    return df
+
+
+def format_gil(price: int | float) -> str:
+    return f"{price:,} gil"
+    
+def format_velocity(velocity: int | float) -> str:
+    return f"Velocity: {velocity:,.2f}/day"
+
+
+@dataclass
+class Item:
+    name: str
+    item_id: int
+    amount: int
+    shop_price: float | None
+    nq_price: float | None
+    nq_velocity: float | None
+    nq_world: str | None
+    hq_price: float | None
+    hq_velocity: float | None
+    hq_world: str | None
+    cheapest_source: str | None
+    icon_url: str
+
+
+def extract_Item_from_df(df: pl.DataFrame, index: int) -> Item:
+    name = df.item(index, "item_name")
+    item_id = df.item(index, "item_id")
+    amount = df.item(index, "item_amount")
+    shop_price = df.item(index, "shop_price")
+    nq_price = df.item(index, "nq_price")
+    nq_velocity = df.item(index, "nq_velocity")
+    nq_world = df.item(index, "nq_world")
+    hq_price = df.item(index, "hq_price")
+    hq_velocity = df.item(index, "hq_velocity")
+    hq_world = df.item(index, "hq_world")
+    cheapest = df.item(index, "cheapest_source") if "cheapest_source" in df.columns else None
+    icon_url = make_icon_url(df.item(index, "item_icon"))
+    return Item(name, item_id, amount, shop_price, nq_price, nq_velocity, nq_world, hq_price, hq_velocity, hq_world, cheapest, icon_url)
 
 @st.fragment
 def print_result(buy_result_df: pl.DataFrame, sell_result_df: pl.DataFrame, craft_cost_total: int) -> int:
 
-    # Initialise variables from result df
-    name = buy_result_df.item(0, "item_name")
-    id = buy_result_df.item(0, "item_id")
-    amount = buy_result_df.item(0, "item_amount")
-    shop_price_each = buy_result_df.item(0, "shop_price")
-    if shop_price_each is not None:
-        shop_price_total = shop_price_each * amount
+    # Extract fields using helper dataclasses
+    buy = extract_Item_from_df(buy_result_df, 0)
+    sell = extract_Item_from_df(sell_result_df, 0)
 
-    nq_buy_price_each = buy_result_df.item(0, "nq_price")
-    if nq_buy_price_each is not None:
-        nq_buy_price_total = nq_buy_price_each * amount
-    nq_buy_velocity = buy_result_df.item(0, "nq_velocity")
-    nq_buy_world = buy_result_df.item(0, "nq_world")
+    name = buy.name
+    id = buy.item_id
+    amount = buy.amount
 
-    hq_buy_price_each = buy_result_df.item(0, "hq_price")
-    if hq_buy_price_each is not None:
-        hq_buy_price_total = hq_buy_price_each * amount
-    hq_buy_velocity = buy_result_df.item(0, "hq_velocity")
-    hq_buy_world = buy_result_df.item(0, "hq_world")
+    if st.session_state.nq_craft == False:
+        type = "HQ"
+        buy_price_each = buy.hq_price
+        buy_velocity = buy.hq_velocity
+        buy_world = buy.hq_world    
+        sell_price_each = sell.hq_price
+        sell_velocity = sell.hq_velocity
+        sell_world = sell.hq_world
+    else:
+        type = "NQ"
+        buy_price_each = buy.nq_price
+        buy_velocity = buy.nq_velocity
+        buy_world = buy.nq_world
+        sell_price_each = sell.nq_price
+        sell_velocity = sell.nq_velocity
+        sell_world = sell.nq_world
 
-    nq_sell_price_each = sell_result_df.item(0, "nq_price")
-    if nq_sell_price_each is not None:
-        nq_sell_price_total = nq_sell_price_each * amount
-    nq_sell_velocity = sell_result_df.item(0, "nq_velocity")
-    nq_sell_world = sell_result_df.item(0, "nq_world")
-
-    hq_sell_price_each = sell_result_df.item(0, "hq_price")
-    if hq_sell_price_each is not None:
-        hq_sell_price_total = hq_sell_price_each * amount
-    hq_sell_velocity = sell_result_df.item(0, "hq_velocity")
-    hq_sell_world = sell_result_df.item(0, "hq_world")
-
-    icon_url = make_icon_url(buy_result_df.item(0, "item_icon"))
-    craft_cost_each = int(craft_cost_total / amount)
+    icon_url = buy.icon_url
+    craft_cost_each = int(craft_cost_total / amount) if amount else 0
     
     st.markdown("## Craft Details")
     st.space(size="small")
@@ -161,87 +211,42 @@ def print_result(buy_result_df: pl.DataFrame, sell_result_df: pl.DataFrame, craf
     ## Create grid for result item
 
     if amount == 1:
-        st.metric(f"Craft Cost (sum of ingredient costs)", f"{craft_cost_each:,} gil")
+        st.metric(f"Craft Cost (sum of ingredient costs)", f"{format_gil(craft_cost_each)})")
     elif amount > 1:
         st.metric(
-            f"Craft Cost (sum of ingredient costs)", f"{craft_cost_total:,} gil ({craft_cost_each:,} gil each)"
+            f"Craft Cost (sum of ingredient costs)", f"{format_gil(craft_cost_total)} ({format_gil(craft_cost_each)} each)"
         )
     st.space(size="small")
 
     # Create grid for data
-    result_grid = create_grid(4, 3)
+    result_grid = create_grid(2, 3)
 
 
     row = 0
     with result_grid[(row, 0)]:
-        print_result_price(title="HQ Sell Price", type="HQ", amount=amount, 
-                         price=hq_sell_price_each, velocity=hq_sell_velocity, world=hq_sell_world)
+        print_result_price(title=f"{type} Sell Price", type = type, amount=amount, 
+                         price=sell_price_each, velocity=sell_velocity, world=sell_world)
     with result_grid[(row, 1)]:
-        if hq_sell_price_each is None:
-            st.metric(
-            f"Profit made by crafting and selling HQ",
-            f"N/A"
-            )
-        else:
-            if amount == 1:
-                profit = hq_sell_price_each - craft_cost_each
-                profit_perc = profit / craft_cost_each
-            elif amount > 1:
-                profit = hq_sell_price_total - craft_cost_total
-                profit_perc = profit / craft_cost_total
-            st.metric(
-                f"Profit made by crafting and selling HQ",
-                f"{profit:,} gil",
-                f"{profit_perc:.2%}"
-                )
+        profit_perc = print_result_metric(title = "Profit made by crafting and selling HQ", craft_cost_total=craft_cost_total, amount=amount,
+                        price_each=sell_price_each)
     with result_grid[(row, 2)]:
-        sell_recommend(hq_sell_velocity, profit_perc)
+        sell_recommend(profit_perc, sell_velocity)
         
             
     row = 1
 
     with result_grid[(row, 0)]:
-        print_result_price(title="HQ Buy Price", type="HQ", amount=amount, 
-                         price=hq_buy_price_each, velocity=hq_buy_velocity, world=hq_buy_world)
+        print_result_price(title=f"{type} Buy Price", type = type,amount=amount, 
+                         price=buy_price_each, velocity=buy_velocity, world=buy_world)
 
     with result_grid[(row, 1)]:
         with st.container():
-            if amount == 1:
-                savings = hq_buy_price_each - craft_cost_each
-                savings_perc = savings / hq_buy_price_each
-            elif amount > 1:
-                savings = hq_buy_price_total - craft_cost_total
-                savings_perc = savings / craft_cost_each
-            st.metric(
-            f"Amount saved crafting vs buying HQ",
-            f"{savings:,} gil",
-            f"{savings_perc:.2%}"
-            )
+            profit_perc = print_result_metric(title = "Amount saved crafting vs buying HQ", craft_cost_total=craft_cost_total, amount=amount,
+                                    price_each=buy_price_each)
     with result_grid[(row, 2)]:
-        buy_recommend(savings_perc)
+        buy_recommend(profit_perc)
     
-    
-    row = 2
-    with result_grid[(row, 0)]:
-        print_result_price(title="NQ Sell Price", type="NQ", amount=amount, 
-                    price=nq_sell_price_each, velocity=nq_sell_velocity, world=nq_sell_world)
 
-    with result_grid[(row, 1)]:
-        profit_perc = print_result_metric(title = "Profit made by crafting and selling NQ", craft_cost_total=craft_cost_total, amount=amount,
-                                          price_each=nq_sell_price_each)
-    with result_grid[(row, 2)]:
-        sell_recommend(nq_sell_velocity, profit_perc)
-
-    row = 3
-    with result_grid[(row, 0)]:
-        print_result_price(title="NQ Buy Price", type="NQ", amount=amount, 
-                    price=nq_buy_price_each, velocity=nq_buy_velocity, world=nq_buy_world)
-    with result_grid[(row, 1)]:
-        with st.container():
-            profit_perc = print_result_metric(title = "Amount saved crafting vs buying NQ", craft_cost_total=craft_cost_total, amount=amount,
-                price_each=nq_buy_price_each)
-    with result_grid[(row, 2)]:
-        buy_recommend(savings_perc)
 
 def create_grid(rows,cols) -> dict:
     result_grid = {}
@@ -254,39 +259,45 @@ def create_grid(rows,cols) -> dict:
     return result_grid
 
 def print_result_metric(title, craft_cost_total: int, amount: int, price_each: int) -> int:
-    price_total = price_each * amount
+    
     craft_cost_each = int(craft_cost_total / amount)
     if price_each is None:
         st.metric(
             f"{title}",
             f"N/A"
             )
+        profit_perc = None
     else:
         if amount == 1:
             profit = price_each - craft_cost_each
             profit_perc = profit / craft_cost_each
         elif amount > 1:
-            profit = nq_sell_price_total - craft_cost_total
+            price_total = price_each * amount
+            profit = price_total - craft_cost_total
             profit_perc = profit / craft_cost_total
         st.metric(
                 f"{title}",
-                f"{profit:,} gil",
+                f"{format_gil(profit)}",
                 f"{profit_perc:.2%}"
                 )
     return profit_perc
 
-def print_result_price(title, type, amount, price, velocity, world):
+def print_result_price(title: str, type: str, amount: int, price: int, velocity: int, world: str):
     st.markdown(f"#### {title}")
     if price is None:
-        st.write(":red[N/A  \n(No {type} available)]")
+        st.write(f":red[N/A  \n(No {type} available)]")
     else:
         if amount == 1:
-            st.write(f"{price:,} gil @ {world}")
+            st.write(f"{format_gil(price)} @ {world}")
         elif amount > 1:
-            st.write(f"{price * amount:,} gil ({price:,} gil each @ {world})")
-        st.write(f"Velocity: {velocity:,.2f}/day")
+            st.write(f"{format_gil(price * amount)} {format_gil(price)}) each @ {world})")
+        st.write(format_velocity(velocity))
 
-def sell_recommend(sell_velocity, profit_perc):
+def sell_recommend(profit_perc, sell_velocity):
+    if profit_perc is None:
+        st.markdown("### :red[Don't craft to sell!]")
+        st.error(f"&nbsp; Unable to calculate profit as no data", icon="🔥")
+        return
     if profit_perc > profit_perc_good_threshold and sell_velocity > velocity_good_threshold:
         st.markdown("### :green[Craft to sell!]")
     else:
@@ -364,26 +375,27 @@ def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
     for row in range(1, len(buy_ingr_df) + 1):
         row_cost = 0
         index = row - 1
-        name = buy_ingr_df.item(index, "item_name")
-        id = buy_ingr_df.item(index, "item_id")
-        amount = buy_ingr_df.item(index, "item_amount")
-        shop_price = buy_ingr_df.item(index, "shop_price")
-        nq_price = buy_ingr_df.item(index, "nq_price")
-        nq_velocity = buy_ingr_df.item(index, "nq_velocity")
-        nq_world = buy_ingr_df.item(index, "nq_world")
-        hq_price = buy_ingr_df.item(index, "hq_price")
-        hq_velocity = buy_ingr_df.item(index, "hq_velocity")
-        hq_world = buy_ingr_df.item(index, "hq_world")
-        
+        ingr = extract_Item_from_df(buy_ingr_df, index)
+        name = ingr.name
+        id = ingr.item_id
+        amount = ingr.amount
+        shop_price = ingr.shop_price
+        nq_price = ingr.nq_price
+        nq_velocity = ingr.nq_velocity
+        nq_world = ingr.nq_world
+        hq_price = ingr.hq_price
+        hq_velocity = ingr.hq_velocity
+        hq_world = ingr.hq_world
+
         shop_amount, nq_amount, hq_amount = 0, 0, 0
-        match buy_ingr_df.item(index, "cheapest_source"):
+        match ingr.cheapest_source:
             case "shop_price":
                 shop_amount = amount
             case "nq_price":
                 nq_amount = amount
             case "hq_price":
                 hq_amount = amount
-        icon_url = make_icon_url(buy_price_df.item(index, "item_icon"))
+        icon_url = ingr.icon_url
 
 
         # Ingredient name column
@@ -398,59 +410,20 @@ def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
 
         # Ingredient shop quantity/price column
         with ingr_grid[(row, 2)]:
-            if shop_price is None:
-                st.write(":red[N/A  \n(Not sold in shop)]")
-            else:
-                shop_qty = st.number_input(
-                    "num_shop",
-                    min_value=0,
-                    max_value=amount,
-                    value=shop_amount,
-                    key=f"{id}_shop_qty",
-                    label_visibility="hidden",
-                )
-                shop_total = shop_price * shop_qty
-                st.write(f"{shop_total:,} gil ({shop_price:,} gil each)")
-                row_cost += shop_total
-
+            cell_total = print_ingr_amount_input(id=id, source="shop", amount=amount, price=shop_price, default_value=shop_amount)
+            row_cost += cell_total
         # Ingredient market NQ quantity/price column
         with ingr_grid[(row, 3)]:
-            if nq_price is None:
-                st.write(":red[N/A  \n(No NQ available)]")
-            else:
-                nq_qty = st.number_input(
-                    "num_nq",
-                    min_value=0,
-                    max_value=amount,
-                    value=nq_amount,
-                    key=f"{id}_nq_qty",
-                    label_visibility="hidden",
-                )
-                nq_total = nq_price * nq_qty
-                st.write(f"{nq_total:,} gil ({nq_price:,} gil each @ {nq_world})")
-                st.write(f"Velocity: {nq_velocity:,.2f}/day")
-                row_cost += nq_total
+            cell_total = print_ingr_amount_input(id=id, source="nq", amount=amount, price=nq_price, default_value=nq_amount, velocity=nq_velocity)
+            row_cost += cell_total
         
         # Ingredient market HQ quantity/price column
         with ingr_grid[(row, 4)]:
-            if hq_price is None:
-                st.write(":red[N/A  \n(No HQ available)]")
-            else:
-                hq_qty = st.number_input(
-                    "num_hq",
-                    min_value=0,
-                    max_value=amount,
-                    value=hq_amount,
-                    key=f"{id}_hq_qty",
-                    label_visibility="hidden",
-                )
-                hq_total = hq_price * hq_qty
-                st.write(f"{hq_total:,} gil ({hq_price:,} gil each @ {hq_world})")
-                st.write(f"Velocity: {hq_velocity:,.2f}/day")
-                row_cost += hq_total
+            cell_total = print_ingr_amount_input(id=id, source="hq", amount=amount, price=hq_price, default_value=hq_amount, velocity=hq_velocity)
+            row_cost += cell_total
 
         # Ingredient total cost (per ingredient) column
-        ingr_grid[(row, 5)].write(f"{row_cost:,}")
+        ingr_grid[(row, 5)].write(f"{format_gil(row_cost)}")
         
 
 
@@ -465,9 +438,9 @@ def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
 
     if result_amount > 1:
         st.write(
-            f"#### Total ingredient cost per craftable amount ({result_amount}): :red[{craft_cost_total:,}]"
+            f"#### Total ingredient cost per craftable amount ({result_amount}): :red[{format_gil(craft_cost_total)}]"
         )
-    st.write(f"#### Total ingredient cost: :red[{craft_cost_each:,} gil each]")
+    st.write(f"#### Total ingredient cost: :red[{format_gil(craft_cost_each)} each]")
 
 
     if total_velocity is None:
@@ -482,6 +455,32 @@ def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
             print_result(buy_result_df, sell_result_df, craft_cost_total)
 
     return
+
+def print_ingr_amount_input(id: int, source: str, amount: int, price: int, default_value: int, velocity: float =0) -> int:
+    if price is None:
+        match source:
+            case "shop":
+                st.write(":red[N/A  \n(Not sold in shop)]")
+            case "nq":
+                st.write(":red[N/A  \n(No NQ available)]")
+            case "hq":
+                st.write(":red[N/A  \n(No HQ available)]")
+        return 0
+    else:
+        shop_qty = st.number_input(
+                    label=f"num_{source}",
+                    min_value=0,
+                    max_value=amount,
+                    value=default_value,
+                    key=f"{id}_{source}_qty",
+                    label_visibility="hidden",
+                )
+        cost = price * shop_qty
+        st.write(f"{format_gil(cost)} ({format_gil(price)}) each)")
+        if source != "shop":
+            st.write(format_velocity(velocity))
+        return cost
+        
 
 
 def make_icon_url(icon: int) -> str:
@@ -527,23 +526,6 @@ def initialize_params():
                 st.session_state[param] = None
         except:
             pass
-
-
-def join_item_price_dfs(items_to_lookup_df, dc_market_prices_df):
-    df = items_to_lookup_df.lazy().join(dc_market_prices_df.lazy(), on="item_id", how="left")
-    df = df.with_columns(pl.min_horizontal("shop_price", "nq_price", "hq_price").alias("cheapest"))
-
-    cheapest_source_df = (
-        df.select(pl.col("item_id", "shop_price", "nq_price", "nq_world", "hq_price", "hq_world"))
-        .unpivot(on=["hq_price", "shop_price", "nq_price"], index="item_id", variable_name="source", value_name="price")
-        .sort(["item_id", "price"]).drop_nulls().unique("item_id", keep="first")
-    )
-
-    df = df.join(cheapest_source_df.select(pl.col("item_id", "source")), on="item_id", how="left")
-    df = df.collect()
-    if "source" in df.columns:
-        df = df.rename({"source": "cheapest_source"})
-    return df
 
 if __name__ == "__main__":
     st.set_page_config(layout="wide", page_title="FFXIV Crafting Profit Calculator")
@@ -607,6 +589,8 @@ if __name__ == "__main__":
         else:
             st.checkbox("Buy ingredients on same world (no world travel)", value=False, key="same_world_buy")
 
+        st.checkbox("Only craft against NQ items", value=False, help="Default setting assume crafters will always aim for HQ crafts", key="nq_craft")
+
     # Create main page elements
     st.title("FFXIV Crafting Profit Calculator")
         
@@ -662,33 +646,29 @@ if __name__ == "__main__":
             pl.col("selectbox_label") == item_selectbox
         ).select("recipe_id").item()
 
-        
+
+        # Update page title with selected item name
         st.set_page_config(layout="wide", page_title=item_selectbox)
 
 
         # Create empy containers that will display information
-        
         cont_analysis = st.empty()
         cont_velocity_warning = st.empty()
         cont_result = st.empty()
         cont_ingr = st.container()
 
-
         # Prepare data needed for Universalis API GET
-        items_to_lookup_df = all_recipes_df.filter(pl.col("recipe_id") == recipe_id)
+        lookup_items_df = all_recipes_df.filter(pl.col("recipe_id") == recipe_id)
         
         # Buy from datacentre if travel is allowed (i.e. same world buy = False), otherwise limit buy to same world
         if not st.session_state.same_world_buy:
-            buy_price_df = get_prices_from_universalis(items_to_lookup_df, st.session_state.dc)
+            buy_price_df = get_prices_from_universalis(lookup_items_df, st.session_state.dc)
         else:
-            buy_price_df = get_prices_from_universalis(items_to_lookup_df, st.session_state.world)
-        # Combine item data with market data
-        buy_price_df = join_item_price_dfs(items_to_lookup_df, buy_price_df)
+            buy_price_df = get_prices_from_universalis(lookup_items_df, st.session_state.world)
         
         # Sell only from specified world if selected, otherwise sell on whole datacenter
         if st.session_state.world is not None:
-            sell_price_df = get_prices_from_universalis(items_to_lookup_df, st.session_state.world)
-            sell_price_df = join_item_price_dfs(items_to_lookup_df, sell_price_df)
+            sell_price_df = get_prices_from_universalis(lookup_items_df, st.session_state.world)
         else:
             sell_price_df = buy_price_df
 
