@@ -19,7 +19,7 @@ profit_perc_good_threshold = 0.25  # Minimum profit % to show "good profit" mess
 velocity_warning_threshold = 20  # Minimum velocity to show "good sell" message
 velocity_good_threshold = 99  # Minimum velocity to show "good sell" message
 
-@st.cache_data(show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def get_worlds_dc() -> pl.DataFrame:
     # Read world & dc data from local duckdb
     with duckdb.connect(DB_NAME) as con:
@@ -27,25 +27,24 @@ def get_worlds_dc() -> pl.DataFrame:
         df = con.sql(query).pl()
     return df
 
-@st.cache_data(show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def get_all_recipes() -> pl.DataFrame:
     # Read recipe data from local duckdb
     with duckdb.connect(DB_NAME) as con:
         query = """SELECT * from  recipe_price"""
         df = con.sql(query).pl()
-
     results_df = df.filter(pl.col("recipe_part") == "result")
-    
+
     # Concat item_id to the end of item_name to make selectbox easily searchable
     # Some items can be crafted by two jobs (ARM/BSM) with slightly different recipes, so appending job name to the end as well
     two_job_craftable = results_df.filter(pl.col("item_id").is_duplicated())
 
-    df = df.with_columns(
-        pl.when(df["recipe_id"].is_in(two_job_craftable["recipe_id"].implode()))
-        .then(pl.concat_str(["item_name", pl.lit(" ("), "item_id", pl.lit(")"),pl.lit(" ("), "job", pl.lit(")")]))
-        .otherwise(pl.concat_str(["item_name", pl.lit(" ("), "item_id", pl.lit(")")]))
+    df = df.lazy().with_columns(
+        pl.when(pl.col("recipe_id").is_in(two_job_craftable["recipe_id"].implode()))
+        .then(pl.concat_str([pl.col("item_name"), pl.lit(" ("), pl.col("item_id"), pl.lit(")"), pl.lit(" ("), pl.col("job"), pl.lit(")")]))
+        .otherwise(pl.concat_str([pl.col("item_name"), pl.lit(" ("), pl.col("item_id"), pl.lit(")")]))
         .alias("selectbox_label")
-    )
+    ).collect()
 
     return df
 
@@ -151,14 +150,6 @@ def print_result(buy_result_df: pl.DataFrame, sell_result_df: pl.DataFrame, craf
 
     icon_url = make_icon_url(buy_result_df.item(0, "item_icon"))
     craft_cost_each = int(craft_cost_total / amount)
-    cheapest_buy_source = buy_result_df.item(0, "cheapest_source")
-    cheapest_buy_source_print = buy_result_df.with_columns(pl.col("cheapest_source").replace({"shop_price":"Shop","nq_price":"NQ","hq_price":"HQ"}).alias("cheapest_source")).item(0, "cheapest_source")
-
-    
-
-
-    
-    # cheapest_buy_source_print = buy_result_df.with_columns(pl.col("cheapest_source").replace({"shop_price":"Shop","nq_price":"NQ","hq_price":"HQ"}).alias("cheapest_source"))
     
     st.markdown("## Craft Details")
     st.space(size="small")
@@ -174,18 +165,6 @@ def print_result(buy_result_df: pl.DataFrame, sell_result_df: pl.DataFrame, craf
             f"Craft Cost (sum of ingredient costs)", f"{craft_cost_total:,} gil ({craft_cost_each:,} gil each)"
         )
     st.space(size="small")
-
-    # if cheapest_buy_source == "shop_price":
-    #     st.markdown("#### :green[Shop Buy Price]")
-    # else:
-    #     st.markdown("#### Shop Buy Price")
-    # if shop_price_each is None:
-    #     st.write(":red[N/A  \n(Not sold in shop)]")
-    # else:    
-    #     if amount == 1:
-    #         st.write(f"{shop_price_each:,} gil")
-    #     elif amount > 1:
-    #         st.write(f"Shop Buy", f"{shop_price_each * amount:,} gil ({shop_price_each:,} gil each)")
 
     # Create grid for data
     result_grid = {}
@@ -364,20 +343,6 @@ def buy_recommend(profit_perc):
         st.success(f"&nbsp; Profit above 25%: {profit_perc:,.2%}", icon="🥳")
 
 
-
-@st.fragment
-def print_pl_warning(pl_perc: float):
-    ## Display advice based on profit/loss %
-    if pl_perc < 0:
-        st.error(
-            f"&nbsp; Crafting to sell will result in a loss: {pl_perc:,.2%}",
-            icon="🔥",
-        )
-    elif pl_perc < 0.25:
-        st.warning(f"&nbsp; Low profit margin (below 25%): {pl_perc:,.2%}", icon="🚨")
-    else:
-        st.success(f"&nbsp; Profit above 25%: {pl_perc:,.2%}", icon="🥳")
-
 @st.fragment
 def print_velocity_warning(velocity: int) -> None:
     ## Display advice based on velocity
@@ -553,8 +518,6 @@ def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
         # Display summary of calculations at top of page
         with cont_result:
             print_result(buy_result_df, sell_result_df, craft_cost_total)
-        # with cont_pl_warning:
-        #     print_pl_warning(pl_perc)
         with cont_velocity_warning:
             print_velocity_warning(total_velocity)
 
@@ -607,20 +570,19 @@ def initialize_params():
 
 
 def join_item_price_dfs(items_to_lookup_df, dc_market_prices_df):
-    df = items_to_lookup_df.join(dc_market_prices_df, on="item_id", how="left").with_row_index()        
-    df = df.with_columns(cheapest=pl.min_horizontal(
-"shop_price",
-        "nq_price",
-        "hq_price"
-    ))
-    
-    cheapest_source_df = df.select(pl.col("item_id", "shop_price","nq_price","nq_world","hq_price","hq_world"))
-    # Prioritise HQ > Shop > NQ if multiple sources have the same price; order of this unpivot matters
-    cheapest_source_df = cheapest_source_df.unpivot(on=["hq_price","shop_price","nq_price",],index="item_id",variable_name="source", value_name="price")
-    cheapest_source_df = cheapest_source_df.sort(["item_id", "price"]).drop_nulls().unique("item_id", keep="first")
+    df = items_to_lookup_df.lazy().join(dc_market_prices_df.lazy(), on="item_id", how="left")
+    df = df.with_columns(pl.min_horizontal("shop_price", "nq_price", "hq_price").alias("cheapest"))
+
+    cheapest_source_df = (
+        df.select(pl.col("item_id", "shop_price", "nq_price", "nq_world", "hq_price", "hq_world"))
+        .unpivot(on=["hq_price", "shop_price", "nq_price"], index="item_id", variable_name="source", value_name="price")
+        .sort(["item_id", "price"]).drop_nulls().unique("item_id", keep="first")
+    )
+
     df = df.join(cheapest_source_df.select(pl.col("item_id", "source")), on="item_id", how="left")
-    df = df.rename({"source":"cheapest_source"})
-    
+    df = df.collect()
+    if "source" in df.columns:
+        df = df.rename({"source": "cheapest_source"})
     return df
 
 if __name__ == "__main__":
@@ -747,7 +709,6 @@ if __name__ == "__main__":
         # Create empy containers that will display information
         
         cont_analysis = st.empty()
-        cont_pl_warning = st.empty()
         cont_velocity_warning = st.empty()
         cont_result = st.empty()
         cont_ingr = st.container()
