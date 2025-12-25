@@ -16,7 +16,7 @@ from dataclasses import dataclass
 ### Configuration variables
 DB_NAME = "ffxiv_price.duckdb"
 home_page = st.Page("app.py", default=True)
-default_profit_goal = 25  # Minimum profit % to show "good profit" message
+default_profit_goal = 0.25  # Minimum profit % to show "good profit" message
 default_velocity_warning = 15  # Minimum velocity to show "good sell" message
 default_velocity_goal = 40  # Minimum velocity to show "good sell" message
 
@@ -331,9 +331,9 @@ def sell_recommend(profit_perc, sell_velocity):
                 icon="🔥",
             )
     elif profit_perc < st.session_state.get("profit_goal"):
-        st.warning(f"&nbsp; Low profit margin (below {st.session_state.get("profit_goal")}%): {profit_perc:,.2%}", icon="🚨")
+        st.warning(f"&nbsp; Low profit margin (below {st.session_state.get("profit_goal"):,.2%}): {profit_perc:,.2%}", icon="🚨")
     else:
-        st.success(f"&nbsp; Profit above 25%: {profit_perc:,.2%}", icon="🥳")
+        st.success(f"&nbsp; Profit above {st.session_state.get("profit_goal"):,.2%}): {profit_perc:,.2%}", icon="🥳")
     if sell_velocity is None:
         return
     elif sell_velocity < default_velocity_warning:
@@ -358,9 +358,9 @@ def buy_recommend(profit_perc):
                 icon="🔥",
             )
     elif profit_perc < st.session_state.get("profit_goal"):
-        st.warning(f"&nbsp; Low profit margin (below {st.session_state.get("profit_goal")}%): {profit_perc:,.2%}", icon="🚨")
+        st.warning(f"&nbsp; Low profit margin (below {st.session_state.get("profit_goal"):,.2%}): {profit_perc:,.2%}", icon="🚨")
     else:
-        st.success(f"&nbsp; Profit above 25%: {profit_perc:,.2%}", icon="🥳")
+        st.success(f"&nbsp; Profit above {st.session_state.get("profit_goal"):,.2%}): {profit_perc:,.2%}", icon="🥳")
 
 @st.fragment
 def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
@@ -551,6 +551,8 @@ def initialize_params():
         st.session_state["world"] = params.get("world")
     if "item" not in st.session_state:
         st.session_state["item"] = params.get("item")
+    if "profit_goal" not in st.session_state:
+        st.session_state["profit_goal"] = default_profit_goal
     
     # Change "none" string values -> None
     for param in ("dc", "world", "item"):
@@ -619,7 +621,13 @@ if __name__ == "__main__":
             st.space("stretch")
         st.checkbox("Only craft NQ items", value=False, help="Default setting assume crafters will always aim for HQ crafts. Check this if you are bulk crafting NQ items instead.", key="nq_craft")
 
-        st.number_input("Low profit % warning threshold", min_value=0, value=int(default_profit_goal), key ="profit_goal", help="Set this to determine what threshold low profit will flag at")
+
+        profit_goal_input = st.number_input("Low profit % warning threshold", min_value=0, value=int(default_profit_goal*100), step=1, help="Set this to determine what threshold low profit will flag at", format="%0f")
+        if profit_goal_input:
+            try:
+                st.session_state.profit_goal = profit_goal_input / 100
+            except:
+                st.session_state.profit_goal = default_profit_goal
         st.number_input("Low velocity warning threshold", min_value=0, value=int(default_velocity_goal), key ="velocity_goal", help="Set this to determine what threshold low velocity will flag at")
         sync_params_and_redirect()
 
