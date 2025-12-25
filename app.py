@@ -69,16 +69,16 @@ def get_prices_from_universalis(lookup_items_df: pl.DataFrame, region: str) -> p
             "fields": "items.nqSaleVelocity,items.hqSaleVelocity,items.listings.pricePerUnit,items.listings.onMannequin,items.listings.worldName",
         }
         
+        # Use shared requests session with retries/backoff
+        session = get_requests_session()
         try:
-            response = requests.get(url, params=parameters, timeout=10)
-            response.raise_for_status()
-            time.sleep(0.5)  # To avoid hitting universalis rate limit
-        except Exception as e:
+            response_json = fetch_universalis(session, url, parameters)
+        except Exception:
             st.error("No response from Universalis.app - please try again")
             st.stop()
 
         # Unpivot and unnest json data
-        data = response.json()["items"]
+        data = response_json["items"]
         df = pl.DataFrame(data).lazy().unpivot(variable_name="id").unnest("value")
         df = df.explode("listings").unnest("listings")
 
@@ -132,6 +132,28 @@ def get_prices_from_universalis(lookup_items_df: pl.DataFrame, region: str) -> p
         df = df.rename({"source": "cheapest_source"})
 
     return df
+
+
+@st.cache_resource(show_spinner=False)
+def get_requests_session() -> requests.Session:
+    session = requests.Session()
+    try:
+        from urllib3.util import Retry
+        from requests.adapters import HTTPAdapter
+        retries = Retry(total=3, backoff_factor=0.5, status_forcelist=(429, 500, 502, 503, 504))
+        adapter = HTTPAdapter(max_retries=retries)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+    except Exception:
+        pass
+    return session
+
+
+def fetch_universalis(session: requests.Session, url: str, params: dict) -> dict:
+    resp = session.get(url, params=params, timeout=10)
+    resp.raise_for_status()
+    time.sleep(0.2)
+    return resp.json()
 
 
 def format_gil(price: int | float) -> str:
@@ -211,7 +233,7 @@ def print_result(buy_result_df: pl.DataFrame, sell_result_df: pl.DataFrame, craf
     ## Create grid for result item
 
     if amount == 1:
-        st.metric(f"Craft Cost (sum of ingredient costs)", f"{format_gil(craft_cost_each)})")
+        st.metric(f"Craft Cost (sum of ingredient costs)", f"{format_gil(craft_cost_each)}")
     elif amount > 1:
         st.metric(
             f"Craft Cost (sum of ingredient costs)", f"{format_gil(craft_cost_total)} ({format_gil(craft_cost_each)} each)"
@@ -321,6 +343,10 @@ def sell_recommend(profit_perc, sell_velocity):
         st.success(f"&nbsp; Item will sell: average {sell_velocity:,.2f} sold/day", icon="🥳")
 
 def buy_recommend(profit_perc):
+    if profit_perc is None:
+        st.markdown("### :red[Don't craft to use!]")
+        st.error(f"&nbsp; Unable to calculate savings as no data", icon="🔥")
+        return
     if profit_perc > profit_perc_good_threshold:
         st.markdown("### :green[Craft to use!]")
     else:
@@ -401,7 +427,7 @@ def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
         # Ingredient name column
         with ingr_grid[(row, 0)]:
             if int(id) in results_df["item_id"]:
-                st.markdown(f"![{name}]({icon_url}) {name} ([{id}](/?dc={st.session_state.dc}&world={st.session_state.world}id={id}))")
+                st.markdown(f"![{name}]({icon_url}) {name} ([{id}](/?dc={st.session_state.dc}&world={st.session_state.world}&item={id}))")
             else:
                 st.markdown(f"![{name}]({icon_url}) {name} ({id})")
 
@@ -493,47 +519,43 @@ def make_icon_url(icon: int) -> str:
 
 
 
-def update_params():
-    if not st.session_state.dc == dc_selectbox:
-        st.session_state.dc = dc_selectbox
-    if not st.session_state.world == world_selectbox:
-        st.session_state.world = world_selectbox
-    if not st.session_state.item == item_id:
-        st.session_state.item = item_id
+def sync_params_and_redirect(changed: bool = False):
+    # Synchronize `session_state with current UI selections and redirect if changed.
+    
+    if st.session_state.get("dc") != dc_selectbox:
+        st.session_state["dc"] = dc_selectbox
+        st.switch_page(home_page, query_params={"dc": st.session_state.get("dc"), "world": st.session_state.get("world"), "item": st.session_state.get("item")})
+        changed = True
+    if st.session_state.get("world") != world_selectbox:
+        st.session_state["world"] = world_selectbox
+        changed = True
+    
+    # Already marked changed = True outside the function for item; this is just a placeholder
+    if st.session_state.get("item"):
+        pass 
+    
+    if changed:
+        st.switch_page(home_page, query_params={"dc": st.session_state.get("dc"), "world": st.session_state.get("world"), "item": st.session_state.get("item")})
 
 
 def initialize_params():
+    params = st.query_params
     # Initialise page params
     if "dc" not in st.session_state:
-        try:
-            st.session_state.dc = st.query_params.dc
-        except:
-            st.session_state.dc = "Mana"
+        st.session_state["dc"] = params.get("dc") or "Mana"
     if "world" not in st.session_state:
-        try:
-            st.session_state.world = st.query_params.world
-        except:
-            st.session_state.world = None
+        st.session_state["world"] = params.get("world")
     if "item" not in st.session_state:
-        try:
-            st.session_state.item = st.query_params.item
-        except:
-            st.session_state.item = None
-
-    for param, value in st.session_state.items():
-        try:
-            if value.lower() == "none":
-                st.session_state[param] = None
-        except:
-            pass
+        st.session_state["item"] = params.get("item")
+    
+    # Change "none" string values -> None
+    for param in ("dc", "world", "item"):
+        val = st.session_state.get(param)
+        if isinstance(val, str) and val.lower() == "none":
+            st.session_state[param] = None
 
 if __name__ == "__main__":
     st.set_page_config(layout="wide", page_title="FFXIV Crafting Profit Calculator")
-
-    
-    
-
-    
 
     # Initialise data centre and world dfs/lists
     initialize_params()
@@ -565,9 +587,10 @@ if __name__ == "__main__":
     # Create sidebar for settings
     
     with st.sidebar:
+        st.write(st.session_state.get("dc"))
         dc_selectbox = st.selectbox(
             label="Select datacenter where buying ingredients", options=dc_list,
-            index=[dc.lower() for dc in dc_list].index(st.session_state.dc.lower()))
+            index=[dc.lower() for dc in dc_list].index(st.session_state.get("dc").lower()))
         
         world_list = filter_world(world_list, dc_selectbox)
 
@@ -575,7 +598,7 @@ if __name__ == "__main__":
         def world_selectbox_index() -> int | None:
         # Converts "world" query parameter to index used in selectbox
             try:
-                index = [world.lower() for world in world_list].index(st.session_state.world.lower())
+                index = [world.lower() for world in world_list].index(st.session_state.get("world").lower())
             except:
                 index = None
             return index
@@ -590,6 +613,10 @@ if __name__ == "__main__":
             st.checkbox("Buy ingredients on same world (no world travel)", value=False, key="same_world_buy")
 
         st.checkbox("Only craft against NQ items", value=False, help="Default setting assume crafters will always aim for HQ crafts", key="nq_craft")
+
+        sync_params_and_redirect()
+
+        
 
     # Create main page elements
     st.title("FFXIV Crafting Profit Calculator")
@@ -621,11 +648,8 @@ if __name__ == "__main__":
 
     def item_selectbox_index() -> int | None:
     # Converts "item" query parameter to index used in selectbox
-        try:
-            item_id = int(st.session_state.item)
-            index = recipe_selectbox_df["item_id"].to_list().index(item_id)
-        except:
-            index = None
+        item_id = st.session_state.get("item")
+        index = recipe_selectbox_df["item_id"].to_list().index(int(item_id)) if item_id is not None else None
         return index
 
     item_selectbox = st.selectbox(
@@ -634,13 +658,19 @@ if __name__ == "__main__":
         index=item_selectbox_index())
     
 
-
     # Create elements and manipulate data that are loaded once item has been selected
+
+    
+
     if item_selectbox:
         # with st.spinner("Fetching data from Universalis"):
         item_id = recipe_selectbox_df.filter(
             pl.col("selectbox_label") == item_selectbox
         ).select("item_id").item()
+        
+        if st.session_state["item"] != item_id:
+            st.session_state["item"] = item_id
+            sync_params_and_redirect(changed=True)
 
         recipe_id = recipe_selectbox_df.filter(
             pl.col("selectbox_label") == item_selectbox
@@ -651,11 +681,9 @@ if __name__ == "__main__":
         st.set_page_config(layout="wide", page_title=item_selectbox)
 
 
-        # Create empy containers that will display information
-        cont_analysis = st.empty()
-        cont_velocity_warning = st.empty()
+        # Create empy containers that will hold display information
         cont_result = st.empty()
-        cont_ingr = st.container()
+        cont_ingr = st.empty()
 
         # Prepare data needed for Universalis API GET
         lookup_items_df = all_recipes_df.filter(pl.col("recipe_id") == recipe_id)
@@ -667,7 +695,7 @@ if __name__ == "__main__":
             buy_price_df = get_prices_from_universalis(lookup_items_df, st.session_state.world)
         
         # Sell only from specified world if selected, otherwise sell on whole datacenter
-        if st.session_state.world is not None:
+        if st.session_state.get("world"):
             sell_price_df = get_prices_from_universalis(lookup_items_df, st.session_state.world)
         else:
             sell_price_df = buy_price_df
@@ -675,20 +703,3 @@ if __name__ == "__main__":
         # Fill containers with content from output_df; output of several containers nested inside print_ingredients()
         with cont_ingr:
             print_ingredients(buy_price_df, sell_price_df)
-
-
-# Update params
-    try:
-        _ = item_id
-    except:
-        item_id = None
-    # # Update session state, page URL and page title after dc is selected
-    if not st.session_state.dc == dc_selectbox:
-        update_params()
-        st.switch_page(home_page, query_params={"dc":st.session_state.dc, "world": st.session_state.world, "item":st.session_state.item})
-    if not st.session_state.world == world_selectbox:
-        update_params()
-        st.switch_page(home_page, query_params={"dc":st.session_state.dc, "world": st.session_state.world, "item":st.session_state.item})
-    if not st.session_state.item == item_id:
-        update_params()
-        st.switch_page(home_page, query_params={"dc":st.session_state.dc, "world": st.session_state.world, "item":st.session_state.item})
