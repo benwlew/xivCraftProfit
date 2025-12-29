@@ -1,6 +1,5 @@
 """
 TODO
-- Make thresholds adjustable in UI
 - Add item source, e.g. currency if vendor; SpecialShop.csv; nontrivial effort
 - Add Japanese language support; not sure where source is
 - Support recursive crafts (subcrafts); not sure how to implement
@@ -36,19 +35,7 @@ def get_all_recipes() -> pl.DataFrame:
     with duckdb.connect(DB_NAME) as con:
         query = """SELECT * from  recipe_price"""
         df = con.sql(query).pl()
-    results_df = df.filter(pl.col("recipe_part") == "result")
-
-    # Concat item_id to the end of item_name to make selectbox easily searchable
-    # Some items can be crafted by two jobs (ARM/BSM) with slightly different recipes, so appending job name to the end as well
-    two_job_craftable = results_df.filter(pl.col("item_id").is_duplicated())
-
-    df = df.lazy().with_columns(
-        pl.when(pl.col("recipe_id").is_in(two_job_craftable["recipe_id"].implode()))
-        .then(pl.concat_str([pl.col("item_name"), pl.lit(" ("), pl.col("item_id"), pl.lit(")"), pl.lit(" ("), pl.col("job"), pl.lit(")")]))
-        .otherwise(pl.concat_str([pl.col("item_name"), pl.lit(" ("), pl.col("item_id"), pl.lit(")")]))
-        .alias("selectbox_label")
-    ).collect()
-
+    df = df.lazy().sort("recipe_id", "recipe_part").collect()
     return df
 
 
@@ -115,9 +102,8 @@ def get_prices_from_universalis(lookup_items_df: pl.DataFrame, region: str) -> p
     prices_df = nq_df.join(hq_df, on="id").sort("id").rename({"id":"item_id"})
     prices_df = prices_df.with_columns(pl.col("item_id").cast(pl.Int64)).collect()
 
-
     # Join data from universalis lookup onto exist data from local duckdb
-    df = lookup_items_df.lazy().join(prices_df.lazy(), on="item_id", how="left")
+    df = lookup_items_df.lazy().join(prices_df.lazy(), on="item_id", how="left").unique()
     df = df.with_columns(pl.min_horizontal("shop_price", "nq_price", "hq_price").alias("cheapest"))
 
     # Aggregate to find cheapest source for each item
@@ -131,7 +117,7 @@ def get_prices_from_universalis(lookup_items_df: pl.DataFrame, region: str) -> p
     df = df.collect()
     if "source" in df.columns:
         df = df.rename({"source": "cheapest_source"})
-
+    
     return df
 
 
@@ -181,7 +167,10 @@ class Item:
 
 
 def extract_Item_from_df(df: pl.DataFrame, index: int) -> Item:
-    name = df.item(index, "item_name")
+    if st.session_state.get("language").lower() == "english":
+        name = df.item(index, "item_name")
+    elif st.session_state.get("language").lower() == "日本語":
+        name = df.item(index, "item_name_jp")
     item_id = df.item(index, "item_id")
     amount = df.item(index, "item_amount")
     shop_price = df.item(index, "shop_price")
@@ -193,6 +182,7 @@ def extract_Item_from_df(df: pl.DataFrame, index: int) -> Item:
     hq_world = df.item(index, "hq_world")
     cheapest = df.item(index, "cheapest_source") if "cheapest_source" in df.columns else None
     icon_url = make_icon_url(df.item(index, "item_icon"))
+
     return Item(name, item_id, amount, shop_price, nq_price, nq_velocity, nq_world, hq_price, hq_velocity, hq_world, cheapest, icon_url)
 
 @st.fragment
@@ -395,10 +385,9 @@ def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
     ingr_grid[(row, 5)].markdown("#### Cost")
 
     ## Populate grid using data from ingredient df
-
+    
     # Initialise variables from ingredient df
     craft_cost_total = 0
-    
     for row in range(1, len(buy_ingr_df) + 1):
         row_cost = 0
         index = row - 1
@@ -545,6 +534,8 @@ def sync_params_and_redirect(changed: bool = False):
 def initialize_params():
     params = st.query_params
     # Initialise page params
+    if "language" not in st.session_state:
+        st.session_state["language"] = "English"
     if "dc" not in st.session_state:
         st.session_state["dc"] = params.get("dc") or "Mana"
     if "world" not in st.session_state:
@@ -568,6 +559,7 @@ if __name__ == "__main__":
     worlds_dc_df = get_worlds_dc()
     dc_list = worlds_dc_df.select("datacentre").unique().to_series().to_list()
     dc_list.sort()
+    language_list = ["English", "日本語"]
 
     world_list = worlds_dc_df.select("world").to_series().to_list()
     world_list.sort()
@@ -588,12 +580,12 @@ if __name__ == "__main__":
     results_df = all_recipes_df.filter(pl.col("recipe_part") == "result")
     ingr_df = all_recipes_df.filter(pl.col("recipe_part").str.contains("ingredient"))
 
-
     ## Create page elements
     # Create sidebar for settings
     
     with st.sidebar:
-        st.write(st.session_state.get("dc"))
+        st.markdown("## Settings")
+        
         dc_selectbox = st.selectbox(
             label="Select datacenter where buying ingredients", options=dc_list,
             index=[dc.lower() for dc in dc_list].index(st.session_state.get("dc").lower()))
@@ -609,16 +601,17 @@ if __name__ == "__main__":
                 index = None
             return index
 
-        with st.container():
-            world_selectbox = st.selectbox(
-                "Select world where selling items (optional)", world_list, index=world_selectbox_index(),
-                help="Will calculate based on cheapest prices in datacentre if not selected", width=200)
+        
+        world_selectbox = st.selectbox(
+            "Select world where selling items (optional)", world_list, index=world_selectbox_index(),
+            help="Will calculate based on cheapest prices in datacentre if not selected", width=200)
 
-            if st.session_state.world is None:
-                st.session_state.same_world_buy = False
-            else:
-                st.checkbox("Buy ingredients on same world (no world travel)", value=False, key="same_world_buy")
-            st.space("stretch")
+        if st.session_state.world is None:
+            st.session_state.same_world_buy = False
+        else:
+            st.checkbox("Buy ingredients on same world (no world travel)", value=False, key="same_world_buy")
+        st.divider()
+
         st.checkbox("Only craft NQ items", value=False, help="Default setting assume crafters will always aim for HQ crafts. Check this if you are bulk crafting NQ items instead.", key="nq_craft")
         profit_goal_input = st.number_input("Low profit % warning threshold", min_value=0, value=int(default_profit_goal*100), step=1, help="Set this to determine what threshold low profit will flag at")
         if profit_goal_input:
@@ -628,6 +621,12 @@ if __name__ == "__main__":
                 st.session_state.profit_goal = default_profit_goal
 
         st.number_input("Low velocity warning threshold", min_value=0, value=int(default_velocity_goal), key ="velocity_goal", help="Set this to determine what threshold low velocity will flag at")
+        st.divider()
+
+        language_selectbox = st.selectbox(
+            label="Language", options=language_list, 
+            index=[language.lower() for language in language_list].index(st.session_state.get("language").lower()), key="language")
+        
         sync_params_and_redirect()
 
         
@@ -656,10 +655,14 @@ if __name__ == "__main__":
     )
     st.markdown("")
         
-    
     # Create recipe selectbox, including formatting data
-    recipe_selectbox_df = results_df.select(pl.col("selectbox_label","recipe_id", "item_id"))
+    if st.session_state.language.lower() == "english":
+        recipe_selectbox_df = results_df.lazy().select(pl.col("selectbox_label","recipe_id", "item_id")).unique().sort("recipe_id").collect()
+    elif st.session_state.language.lower() == "日本語":
+        recipe_selectbox_df = results_df.lazy().select(pl.col("selectbox_label_jp","recipe_id", "item_id")).unique().sort("recipe_id")
+        recipe_selectbox_df = recipe_selectbox_df.rename({"selectbox_label_jp":"selectbox_label"}).collect()
 
+    
     def item_selectbox_index() -> int | None:
     # Converts "item" query parameter to index used in selectbox
         item_id = st.session_state.get("item")
@@ -674,13 +677,11 @@ if __name__ == "__main__":
 
     # Create elements and manipulate data that are loaded once item has been selected
 
-    
-
     if item_selectbox:
         # with st.spinner("Fetching data from Universalis"):
         item_id = recipe_selectbox_df.filter(
             pl.col("selectbox_label") == item_selectbox
-        ).select("item_id").item()
+        ).select("item_id").unique().item()
         
         if st.session_state["item"] != item_id:
             st.session_state["item"] = item_id
@@ -688,7 +689,7 @@ if __name__ == "__main__":
 
         recipe_id = recipe_selectbox_df.filter(
             pl.col("selectbox_label") == item_selectbox
-        ).select("recipe_id").item()
+        ).select("recipe_id").unique().item()
 
 
         # Update page title with selected item name

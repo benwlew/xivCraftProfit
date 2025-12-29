@@ -16,7 +16,7 @@ GH_TOKEN  = os.getenv("GH_TOKEN")
 DB_NAME = "ffxiv_price.duckdb"
 
 logger = utils.setup_logger(__name__)
-csv_files =["ClassJob.csv", "Item.csv", "GilShopItem.csv", "Recipe.csv", "World.csv", "WorldDCGroupType.csv",
+csv_files =["ClassJob.csv", "Item.csv", "GilShopItem.csv", "Recipe.csv", "World.csv", "WorldDCGroupType.csv", "Item_jp.csv"
             ]
  
 """
