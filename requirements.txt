@@ -4,3 +4,4 @@ requests
 polars
 streamlit
 python-dotenv
+polib
