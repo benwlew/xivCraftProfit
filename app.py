@@ -11,13 +11,51 @@ import polars as pl
 import streamlit as st
 import time
 from dataclasses import dataclass
+import gettext
+from pathlib import Path
+import polib
+
 
 ### Configuration variables
 DB_NAME = "ffxiv_price.duckdb"
 home_page = st.Page("app.py", default=True)
+localedir = Path("locales")
+
+def compile_translation():
+    for language in ["en", "jp"]:
+        po_path = Path(f'locales/{language}/LC_MESSAGES/app.po').resolve()
+        mo_path = po_path.with_suffix('.mo')
+        if po_path.exists():
+            po = polib.pofile(str(po_path))
+            po.save_as_mofile(str(mo_path), )
+        print(f"{language} compiled")
+
+def init_gettext(language_code: str | None = None) -> None:
+    # prefer an explicit language_code, otherwise try session state
+    global _
+    compile_translation()
+    
+    match st.session_state.get("language").lower():
+        case "english":
+            gettext_lang = "en"
+        case "日本語":
+            gettext_lang = "jp"
+        case _:
+            gettext_lang = "en"
+    
+    try:
+        translate = gettext.translation("app", localedir=str(localedir), languages=[gettext_lang])
+        translate.install()
+        _ = translate.gettext
+    except Exception:
+        _ = gettext.gettext
+    
+
 default_profit_goal = 0.25  # Minimum profit % to show "good profit" message
 default_velocity_warning = 15  # Minimum velocity to show "good sell" message
 default_velocity_goal = 40  # Minimum velocity to show "good sell" message
+
+
 
 
 @st.cache_resource(show_spinner=False)
@@ -62,7 +100,7 @@ def get_prices_from_universalis(lookup_items_df: pl.DataFrame, region: str) -> p
         try:
             response_json = fetch_universalis(session, url, parameters)
         except Exception:
-            st.error("No response from Universalis.app - please try again")
+            st.error(_("No response from Universalis.app - please try again"))
             st.stop()
 
         # Unpivot and unnest json data
@@ -216,18 +254,18 @@ def print_result(buy_result_df: pl.DataFrame, sell_result_df: pl.DataFrame, craf
     icon_url = buy.icon_url
     craft_cost_each = int(craft_cost_total / amount) if amount else 0
     
-    st.markdown("## Craft Details")
+    st.markdown(_("## Craft Details"))
     st.space(size="small")
     st.markdown(f"### ![{name}]({icon_url}) {name} ({str(id)}): {amount} per craft")
     st.space(size="medium")
-    
+
     ## Create grid for result item
 
     if amount == 1:
-        st.metric(f"Craft Cost (sum of ingredient costs)", f"{format_gil(craft_cost_each)}")
+        st.metric(_("Craft Cost (sum of ingredient costs)"), f"{format_gil(craft_cost_each)}")
     elif amount > 1:
         st.metric(
-            f"Craft Cost (sum of ingredient costs)", f"{format_gil(craft_cost_total)} ({format_gil(craft_cost_each)} each)"
+            _("Craft Cost (sum of ingredient costs)"), f"{format_gil(craft_cost_total)} ({format_gil(craft_cost_each)} " + _("each") + ")"
         )
     st.space(size="small")
 
@@ -237,10 +275,10 @@ def print_result(buy_result_df: pl.DataFrame, sell_result_df: pl.DataFrame, craf
 
     row = 0
     with result_grid[(row, 0)]:
-        print_result_price(title=f"{type} Sell Price", type = type, amount=amount, 
+        print_result_price(title=f"{type} " + _("Sell Price"), type = type, amount=amount, 
                          price=sell_price_each, velocity=sell_velocity, world=sell_world)
     with result_grid[(row, 1)]:
-        profit_perc = print_result_metric(title = "Profit made by crafting and selling HQ", craft_cost_total=craft_cost_total, amount=amount,
+        profit_perc = print_result_metric(title = _("Profit made by crafting and selling {type}").format(type=type), craft_cost_total=craft_cost_total, amount=amount,
                         price_each=sell_price_each)
     with result_grid[(row, 2)]:
         sell_recommend(profit_perc, sell_velocity)
@@ -249,17 +287,16 @@ def print_result(buy_result_df: pl.DataFrame, sell_result_df: pl.DataFrame, craf
     row = 1
 
     with result_grid[(row, 0)]:
-        print_result_price(title=f"{type} Buy Price", type = type,amount=amount, 
+        print_result_price(title=f"{type} " + _("Buy Price"), type = type,amount=amount, 
                          price=buy_price_each, velocity=buy_velocity, world=buy_world)
 
     with result_grid[(row, 1)]:
         with st.container():
-            profit_perc = print_result_metric(title = "Amount saved crafting vs buying HQ", craft_cost_total=craft_cost_total, amount=amount,
+            profit_perc = print_result_metric(title = _("Amount saved crafting vs buying {type}").format(type=type), craft_cost_total=craft_cost_total, amount=amount,
                                     price_each=buy_price_each)
     with result_grid[(row, 2)]:
         buy_recommend(profit_perc)
     
-
 
 def create_grid(rows,cols) -> dict:
     result_grid = {}
@@ -270,6 +307,7 @@ def create_grid(rows,cols) -> dict:
             tile = col.container()
             result_grid[coord] = tile
     return result_grid
+
 
 def print_result_metric(title, craft_cost_total: int, amount: int, price_each: int) -> int:
     
@@ -298,7 +336,7 @@ def print_result_metric(title, craft_cost_total: int, amount: int, price_each: i
 def print_result_price(title: str, type: str, amount: int, price: int, velocity: int, world: str):
     st.markdown(f"#### {title}")
     if price is None:
-        st.write(f":red[N/A  \n(No {type} available)]")
+        st.write(_(":red[N/A  \n(No {type} available)]").format(type=type))
     else:
         if amount == 1:
             st.write(f"{format_gil(price)} @ {world}")
@@ -308,49 +346,46 @@ def print_result_price(title: str, type: str, amount: int, price: int, velocity:
 
 def sell_recommend(profit_perc, sell_velocity):
     if profit_perc is None:
-        st.markdown("### :red[Don't craft to sell!]")
-        st.error(f"&nbsp; Unable to calculate profit as no data", icon="🔥")
+        st.markdown(_("### :red[Don't craft to sell!]") )
+        st.error(_("&nbsp; Unable to calculate profit as no data"), icon="🔥")
         return
     if profit_perc > st.session_state.get("profit_goal") and sell_velocity > st.session_state.get("velocity_goal"):
-        st.markdown("### :green[Craft to sell!]")
+        st.markdown(_("### :green[Craft to sell!]") )
     else:
-        st.markdown("### :red[Don't craft to sell!]")
+        st.markdown(_("### :red[Don't craft to sell!]") )
     if profit_perc < 0:
         st.error(
-                f"&nbsp; Crafting to sell will result in a loss: {profit_perc:,.2%}",
+                _("&nbsp; Crafting to sell will result in a loss: {perc}").format(perc=f"{profit_perc:,.2%}"),
                 icon="🔥",
             )
     elif profit_perc < st.session_state.get("profit_goal"):
-        st.warning(f"&nbsp; Low profit margin (below {st.session_state.get("profit_goal"):,.0%}: {profit_perc:,.2%}", icon="🚨")
+        st.warning(_("&nbsp; Low profit margin (below {goal}: {perc}").format(goal=f"{st.session_state.get('profit_goal'):,.0%}", perc=f"{profit_perc:,.2%}"), icon="🚨")
     else:
-        st.success(f"&nbsp; Profit above {st.session_state.get("profit_goal"):,.0%}: {profit_perc:,.2%}", icon="🥳")
+        st.success(_("&nbsp; Profit above {goal}: {perc}").format(goal=f"{st.session_state.get('profit_goal'):,.0%}", perc=f"{profit_perc:,.2%}"), icon="🥳")
     if sell_velocity is None:
         return
     elif sell_velocity < default_velocity_warning:
-        st.error(f"&nbsp; Item won't sell: average {sell_velocity:,.2f} sold/day", icon="🔥")
+        st.error(_("&nbsp; Item won't sell: average {vel} sold/day").format(vel=f"{sell_velocity:,.2f}"), icon="🔥")
     elif sell_velocity < st.session_state.get("velocity_goal"):
-        st.warning(f"&nbsp; Item will sell slowly: average {sell_velocity:,.2f} sold/day", icon="🚨")
+        st.warning(_("&nbsp; Item will sell slowly: average {vel} sold/day").format(vel=f"{sell_velocity:,.2f}"), icon="🚨")
     else:
-        st.success(f"&nbsp; Item will sell: average {sell_velocity:,.2f} sold/day", icon="🥳")
+        st.success(_("&nbsp; Item will sell: average {vel} sold/day").format(vel=f"{sell_velocity:,.2f}"), icon="🥳")
 
 def buy_recommend(profit_perc):
     if profit_perc is None:
-        st.markdown("### :red[Don't craft to use!]")
-        st.error(f"&nbsp; Unable to calculate savings as no data", icon="🔥")
+        st.markdown(_("### :red[Don't craft to use!]") )
+        st.error(_("&nbsp; Unable to calculate savings as no data"), icon="🔥")
         return
     if profit_perc > st.session_state.get("profit_goal"):
-        st.markdown("### :green[Craft to use!]")
+        st.markdown(_("### :green[Craft to use!]") )
     else:
-        st.markdown("### :red[Don't craft to use!]")
+        st.markdown(_("### :red[Don't craft to use!]") )
     if profit_perc < 0:
-        st.error(
-                f"&nbsp; Crafting to sell will result in a loss: {profit_perc:,.2%}",
-                icon="🔥",
-            )
+        st.error(_("&nbsp; Crafting to sell will result in a loss: {perc}").format(perc=f"{profit_perc:,.2%}"), icon="🔥")
     elif profit_perc < st.session_state.get("profit_goal"):
-        st.warning(f"&nbsp; Low profit margin (below {st.session_state.get("profit_goal"):,.0%}: {profit_perc:,.2%}", icon="🚨")
+        st.warning(_("&nbsp; Low profit margin (below {goal}: {perc}").format(goal=f"{st.session_state.get('profit_goal'):,.0%}", perc=f"{profit_perc:,.2%}"), icon="🚨")
     else:
-        st.success(f"&nbsp; Profit above {st.session_state.get("profit_goal"):,.0%}: {profit_perc:,.2%}", icon="🥳")
+        st.success(_("&nbsp; Profit above {goal}: {perc}").format(goal=f"{st.session_state.get('profit_goal'):,.0%}", perc=f"{profit_perc:,.2%}"), icon="🥳")
 
 @st.fragment
 def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
@@ -363,10 +398,11 @@ def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
     
     # Create header for section
     st.markdown("")
-    st.markdown("# Ingredients")
-    st.text(
-        "All items are set to cheapest source by default, but can be adjusted; cost will update dynamically.\n"
-        "When increasing amounts, make sure to decrease other columns as this is not automatic."
+    st.markdown(_("# Ingredients"))
+    st.markdown(
+        _("All items are set to cheapest source by default, but can be adjusted; cost will update dynamically."))
+    st.markdown(
+        _("When increasing amounts, make sure to decrease other columns as this is not automatic.")
     )
     st.space(size="small")
 
@@ -454,9 +490,9 @@ def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
 
     if result_amount > 1:
         st.write(
-            f"#### Total ingredient cost per craftable amount ({result_amount}): :red[{format_gil(craft_cost_total)}]"
+            _("#### Total ingredient cost per craftable amount ({result_amount}): :red[{cost}]").format(result_amount=result_amount, cost=format_gil(craft_cost_total))
         )
-    st.write(f"#### Total ingredient cost: :red[{format_gil(craft_cost_each)} each]")
+    st.write(_("#### Total ingredient cost: :red[{cost} each]").format(cost=format_gil(craft_cost_each)))
 
 
     if total_velocity is None:
@@ -476,11 +512,11 @@ def print_ingr_amount_input(id: int, source: str,  amount: int, price: int, defa
     if price is None:
         match source:
             case "shop":
-                st.write(":red[N/A  \n(Not sold in shop)]")
+                        st.write(_(":red[N/A  \n(Not sold in shop)]"))
             case "nq":
-                st.write(":red[N/A  \n(No NQ available)]")
+                        st.write(_(":red[N/A  \n(No NQ available)]"))
             case "hq":
-                st.write(":red[N/A  \n(No HQ available)]")
+                        st.write(_(":red[N/A  \n(No HQ available)]"))
         return 0
     else:
         shop_qty = st.number_input(
@@ -501,7 +537,7 @@ def print_ingr_amount_input(id: int, source: str,  amount: int, price: int, defa
         return cost
         
 
-
+@st.cache_data
 def make_icon_url(icon: int) -> str:
     # GET icon image from XIVAPI using icon ID
     folder = f"{icon:0>6}"
@@ -552,10 +588,10 @@ def initialize_params():
             st.session_state[param] = None
 
 if __name__ == "__main__":
-    st.set_page_config(layout="wide", page_title="FFXIV Crafting Profit Calculator")
-
     # Initialise data centre and world dfs/lists
     initialize_params()
+    init_gettext()
+    st.set_page_config(layout="wide", page_title=("FFXIV Crafting Profit Calculator"))
     worlds_dc_df = get_worlds_dc()
     dc_list = worlds_dc_df.select("datacentre").unique().to_series().to_list()
     dc_list.sort()
@@ -584,10 +620,10 @@ if __name__ == "__main__":
     # Create sidebar for settings
     
     with st.sidebar:
-        st.markdown("## Settings")
-        
+        st.markdown(_("## Settings"))
+         
         dc_selectbox = st.selectbox(
-            label="Select datacenter where buying ingredients", options=dc_list,
+            label=_("Select datacenter where buying ingredients"), options=dc_list,
             index=[dc.lower() for dc in dc_list].index(st.session_state.get("dc").lower()))
         
         world_list = filter_world(world_list, dc_selectbox)
@@ -603,28 +639,28 @@ if __name__ == "__main__":
 
         
         world_selectbox = st.selectbox(
-            "Select world where selling items (optional)", world_list, index=world_selectbox_index(),
-            help="Will calculate based on cheapest prices in datacentre if not selected", width=200)
+            _("Select world where selling items (optional)"), world_list, index=world_selectbox_index(),
+            help=_("Will calculate based on cheapest prices in datacentre if not selected"), width=200)
 
         if st.session_state.world is None:
             st.session_state.same_world_buy = False
         else:
-            st.checkbox("Buy ingredients on same world (no world travel)", value=False, key="same_world_buy")
+            st.checkbox(_("Buy ingredients on same world (no world travel)"), value=False, key="same_world_buy")
         st.divider()
 
-        st.checkbox("Only craft NQ items", value=False, help="Default setting assume crafters will always aim for HQ crafts. Check this if you are bulk crafting NQ items instead.", key="nq_craft")
-        profit_goal_input = st.number_input("Low profit % warning threshold", min_value=0, value=int(default_profit_goal*100), step=1, help="Set this to determine what threshold low profit will flag at")
+        st.checkbox(_("Only craft NQ items"), value=False, help=_("Default setting assume crafters will always aim for HQ crafts. Check this if you are bulk crafting NQ items instead."), key="nq_craft")
+        profit_goal_input = st.number_input(_("Low profit % warning threshold"), min_value=0, value=int(default_profit_goal*100), step=1, help=_("Set this to determine what threshold low profit will flag at"))
         if profit_goal_input:
             try:
                 st.session_state.profit_goal = profit_goal_input / 100
             except:
                 st.session_state.profit_goal = default_profit_goal
 
-        st.number_input("Low velocity warning threshold", min_value=0, value=int(default_velocity_goal), key ="velocity_goal", help="Set this to determine what threshold low velocity will flag at")
+        st.number_input(_("Low velocity warning threshold"), min_value=0, value=int(default_velocity_goal), key ="velocity_goal", help=_("Set this to determine what threshold low velocity will flag at"))
         st.divider()
 
         language_selectbox = st.selectbox(
-            label="Language", options=language_list, 
+            label=_("Language"), options=language_list, 
             index=[language.lower() for language in language_list].index(st.session_state.get("language").lower()), key="language")
         
         sync_params_and_redirect()
@@ -632,7 +668,7 @@ if __name__ == "__main__":
         
 
     # Create main page elements
-    st.title("FFXIV Crafting Profit Calculator")
+    st.title(_("FFXIV Crafting Profit Calculator"))
         
     # CSS injection to set non-rounded corners on columns to make them look like tables
     # CSS injection to remove gap between rows of columns to make them look like tables
@@ -650,9 +686,9 @@ if __name__ == "__main__":
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown(
-        "### Lookup item prices by crafted item to check if it's better value to craft from ingredients or buy direct from the marketboard/shops! ###"
-    )
+    st.markdown(_(
+        f"### {_('Lookup item prices by crafted item to check if it\'s better value to craft from ingredients or buy direct from the marketboard/shops!')} ###"
+    ))
     st.markdown("")
         
     # Create recipe selectbox, including formatting data
@@ -670,7 +706,7 @@ if __name__ == "__main__":
         return index
 
     item_selectbox = st.selectbox(
-        label="Select recipe (number in parentheses is item id)",
+        label=_("Select recipe (number in parentheses is item id)"),
         options=recipe_selectbox_df["selectbox_label"],
         index=item_selectbox_index())
     
@@ -678,43 +714,43 @@ if __name__ == "__main__":
     # Create elements and manipulate data that are loaded once item has been selected
 
     if item_selectbox:
-        # with st.spinner("Fetching data from Universalis"):
-        item_id = recipe_selectbox_df.filter(
-            pl.col("selectbox_label") == item_selectbox
-        ).select("item_id").unique().item()
-        
-        if st.session_state["item"] != item_id:
-            st.session_state["item"] = item_id
-            sync_params_and_redirect(changed=True)
+        with st.spinner(_("Fetching data from Universalis")):
+            item_id = recipe_selectbox_df.filter(
+                pl.col("selectbox_label") == item_selectbox
+            ).select("item_id").unique().item()
+            
+            if st.session_state["item"] != item_id:
+                st.session_state["item"] = item_id
+                sync_params_and_redirect(changed=True)
 
-        recipe_id = recipe_selectbox_df.filter(
-            pl.col("selectbox_label") == item_selectbox
-        ).select("recipe_id").unique().item()
-
-
-        # Update page title with selected item name
-        st.set_page_config(layout="wide", page_title=item_selectbox)
+            recipe_id = recipe_selectbox_df.filter(
+                pl.col("selectbox_label") == item_selectbox
+            ).select("recipe_id").unique().item()
 
 
-        # Create empy containers that will hold display information
-        cont_result = st.empty()
-        cont_ingr = st.empty()
+            # Update page title with selected item name
+            st.set_page_config(layout="wide", page_title=item_selectbox)
 
-        # Prepare data needed for Universalis API GET
-        lookup_items_df = all_recipes_df.filter(pl.col("recipe_id") == recipe_id)
-        
-        # Buy from datacentre if travel is allowed (i.e. same world buy = False), otherwise limit buy to same world
-        if not st.session_state.same_world_buy:
-            buy_price_df = get_prices_from_universalis(lookup_items_df, st.session_state.dc)
-        else:
-            buy_price_df = get_prices_from_universalis(lookup_items_df, st.session_state.world)
-        
-        # Sell only from specified world if selected, otherwise sell on whole datacenter
-        if st.session_state.get("world"):
-            sell_price_df = get_prices_from_universalis(lookup_items_df, st.session_state.world)
-        else:
-            sell_price_df = buy_price_df
 
-        # Fill containers with content from output_df; output of several containers nested inside print_ingredients()
-        with cont_ingr:
-            print_ingredients(buy_price_df, sell_price_df)
+            # Create empy containers that will hold display information
+            cont_result = st.empty()
+            cont_ingr = st.empty()
+
+            # Prepare data needed for Universalis API GET
+            lookup_items_df = all_recipes_df.filter(pl.col("recipe_id") == recipe_id)
+            
+            # Buy from datacentre if travel is allowed (i.e. same world buy = False), otherwise limit buy to same world
+            if not st.session_state.same_world_buy:
+                buy_price_df = get_prices_from_universalis(lookup_items_df, st.session_state.dc)
+            else:
+                buy_price_df = get_prices_from_universalis(lookup_items_df, st.session_state.world)
+            
+            # Sell only from specified world if selected, otherwise sell on whole datacenter
+            if st.session_state.get("world"):
+                sell_price_df = get_prices_from_universalis(lookup_items_df, st.session_state.world)
+            else:
+                sell_price_df = buy_price_df
+
+            # Fill containers with content from output_df; output of several containers nested inside print_ingredients()
+            with cont_ingr:
+                print_ingredients(buy_price_df, sell_price_df)

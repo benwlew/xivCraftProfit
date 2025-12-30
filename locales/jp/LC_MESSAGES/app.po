@@ -1,0 +1,179 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+
+# --- Main App Titles ---
+msgid "Profit Calculator"
+msgstr "利益計算機"
+
+msgid "Configuration"
+msgstr "設定"
+
+# --- Sidebar / Settings ---
+msgid "## Settings"
+msgstr "## 設定"
+
+
+msgid "## Craft Details"
+msgstr "## クラフト詳細"
+
+msgid "# Ingredients"
+msgstr "# 必要素材"
+
+msgid "Only craft NQ items"
+msgstr "NQのみクラフトします"
+
+msgid "Language"
+msgstr "言語"
+
+msgid "World"
+msgstr "ワールド"
+
+msgid "Data Center"
+msgstr "データセンター"
+
+msgid "Update Database"
+msgstr "データベース更新"
+
+# --- Table Columns ---
+msgid "Item Name"
+msgstr "アイテム名"
+
+msgid "Crafting Cost"
+msgstr "製作コスト"
+
+msgid "Market Price"
+msgstr "マケボ価格"
+
+msgid "Profit"
+msgstr "利益"
+
+msgid "Sales Velocity"
+msgstr "回転率"
+
+# --- Additional UI strings extracted from app.py ---
+msgid "FFXIV Crafting Profit Calculator"
+msgstr "FFXIV 製作利益計算機"
+
+msgid "Select datacenter where buying ingredients"
+msgstr "素材を購入するデータセンターを選択"
+
+msgid "Select world where selling items (optional)"
+msgstr "アイテムを販売するワールドを選択（任意）"
+
+msgid "Will calculate based on cheapest prices in datacentre if not selected"
+msgstr "未選択の場合、データセンター内の最安価格を基に計算されます"
+
+msgid "Low profit % warning threshold"
+msgstr "低利益%警告閾値"
+
+msgid "Set this to determine what threshold low profit will flag at"
+msgstr "低利益と判断する閾値を設定します"
+
+msgid "Low velocity warning threshold"
+msgstr "低回転率警告閾値"
+
+msgid "Set this to determine what threshold low velocity will flag at"
+msgstr "低回転率と判断する閾値を設定します"
+
+msgid "Select recipe (number in parentheses is item id)"
+msgstr "レシピを選択（括弧内の数字はアイテムID）"
+
+msgid "Lookup item prices by crafted item to check if it's better value to craft from ingredients or buy direct from the marketboard/shops!"
+msgstr "クラフトしたアイテムごとの価格を確認し、素材から作る方がマーケットで購入するよりお得かを判定します！"
+
+msgid "All items are set to cheapest source by default, but can be adjusted; cost will update dynamically."
+msgstr "すべてのアイテムはデフォルトで最安の入手方法に設定されていますが、調整可能です。"
+
+msgid "When increasing amounts, make sure to decrease other columns as this is not automatic."
+msgstr "数量を増やす際は、他の列も手動で減らしてください（自動ではありません）。"
+
+msgid "#### Ingredient"
+msgstr "#### 素材"
+
+msgid "Number below item name is item ID; click link to lookup item profit/loss of subcraft (only for craftable items)"
+msgstr "アイテム名の下の数字はアイテムIDです。リンクをクリックすると副製作の利益/損失を確認できます（製作可能なアイテムのみ）。"
+
+msgid "#### Required"
+msgstr "#### 必要数"
+
+msgid "#### Shop price"
+msgstr "#### 店売り価格"
+
+msgid "#### NQ"
+msgstr "#### NQ"
+
+msgid "#### HQ"
+msgstr "#### HQ"
+
+msgid "#### Cost"
+msgstr "#### コスト"
+
+msgid "Profit made by crafting and selling {type}"
+msgstr "クラフトして販売した場合の利益（{type}）"
+
+msgid "Amount saved crafting vs buying {type}"
+msgstr "クラフトして節約できる額（{type}）"
+
+msgid "Sell Price"
+msgstr "販売価格"
+
+msgid "Buy Price"
+msgstr "購入価格"
+
+msgid "Craft Cost (sum of ingredient costs)"
+msgstr "製作コスト（素材合計）"
+
+msgid "each"
+msgstr "個あたり"
+
+msgid "#### Total ingredient cost per craftable amount ({result_amount}): :red[{cost}]"
+msgstr "#### 製作単位あたりの合計素材コスト（{result_amount}）： :red[{cost}]"
+
+msgid "#### Total ingredient cost: :red[{cost} each]"
+msgstr "#### 合計素材コスト： :red[{cost} 個あたり]"
+
+msgid ":red[N/A  \n(No {type} available)]"
+msgstr ":red[N/A  \n({type} は利用できません)]"
+
+msgid "### :red[Don't craft to sell!]"
+msgstr "### :red[販売するためにはクラフトしないでください！]"
+
+msgid "### :green[Craft to sell!]"
+msgstr "### :green[販売のためにクラフトしましょう！]"
+
+msgid "&nbsp; Unable to calculate profit as no data"
+msgstr "データがないため利益を計算できません"
+
+msgid "&nbsp; Crafting to sell will result in a loss: {perc}"
+msgstr "クラフトして販売すると損失になります：{perc}"
+
+msgid "&nbsp; Low profit margin (below {goal}: {perc}"
+msgstr "利益率が低い（{goal} 未満）：{perc}"
+
+msgid "&nbsp; Profit above {goal}: {perc}"
+msgstr "利益が {goal} を上回っています：{perc}"
+
+msgid "&nbsp; Item won't sell: average {vel} sold/day"
+msgstr "アイテムは売れません：平均 {vel} 個/日"
+
+msgid "&nbsp; Item will sell slowly: average {vel} sold/day"
+msgstr "アイテムの売れ行きが遅い：平均 {vel} 個/日"
+
+msgid "&nbsp; Item will sell: average {vel} sold/day"
+msgstr "アイテムは売れます：平均 {vel} 個/日"
+
+msgid "### :red[Don't craft to use!]"
+msgstr "### :red[使用するためにはクラフトしないでください！]"
+
+msgid "&nbsp; Unable to calculate savings as no data"
+msgstr "データがないため節約額を計算できません"
+
+msgid "### :green[Craft to use!]"
+msgstr "### :green[使用のためにクラフトしましょう！]"
+
+msgid "Buy ingredients on same world (no world travel)"
+msgstr "同一ワールドで素材を購入する（ワールド移動なし）"
+
+msgid "Fetching data from Universalis"
+msgstr "Universalis からデータを取得しています"

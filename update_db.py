@@ -9,6 +9,7 @@ import polars as pl
 import os
 from dotenv import load_dotenv
 from utils import utils
+import polib
 
 load_dotenv(dotenv_path='./.env')
 GH_TOKEN  = os.getenv("GH_TOKEN")
@@ -168,6 +169,8 @@ def update_duckdb() -> None:
             df = db.sql(query).pl()
             db.execute(fr"CREATE OR REPLACE TABLE main.world_dc AS SELECT * FROM df")
             logger.info("Created main.world_dc table")
+
+
 
 def main():
     """Main function to update database with latest FFXIV data."""
