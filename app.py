@@ -1,7 +1,7 @@
 """
 TODO
+- Fix language reset on change
 - Add item source, e.g. currency if vendor; SpecialShop.csv; nontrivial effort
-- Add Japanese language support; not sure where source is
 - Support recursive crafts (subcrafts); not sure how to implement
 """
 
@@ -22,20 +22,20 @@ home_page = st.Page("app.py", default=True)
 localedir = Path("locales")
 
 def compile_translation():
-    for language in ["en", "jp"]:
-        po_path = Path(f'locales/{language}/LC_MESSAGES/app.po').resolve()
+    for lang in ["en", "jp"]:
+        po_path = Path(f'locales/{lang}/LC_MESSAGES/app.po').resolve()
         mo_path = po_path.with_suffix('.mo')
         if po_path.exists():
             po = polib.pofile(str(po_path))
             po.save_as_mofile(str(mo_path), )
-        print(f"{language} compiled")
+        print(f"{lang} compiled")
 
-def init_gettext(language_code: str | None = None) -> None:
+def init_gettext(lang_code: str | None = None) -> None:
     # prefer an explicit language_code, otherwise try session state
     global _
     compile_translation()
     
-    match st.session_state.get("language").lower():
+    match st.session_state.get("lang").lower():
         case "english":
             gettext_lang = "en"
         case "日本語":
@@ -205,9 +205,9 @@ class Item:
 
 
 def extract_Item_from_df(df: pl.DataFrame, index: int) -> Item:
-    if st.session_state.get("language").lower() == "english":
+    if st.session_state.get("lang").lower() == "english":
         name = df.item(index, "item_name")
-    elif st.session_state.get("language").lower() == "日本語":
+    elif st.session_state.get("lang").lower() == "日本語":
         name = df.item(index, "item_name_jp")
     item_id = df.item(index, "item_id")
     amount = df.item(index, "item_amount")
@@ -558,6 +558,9 @@ def sync_params_and_redirect(changed: bool = False):
     if st.session_state.get("world") != world_selectbox:
         st.session_state["world"] = world_selectbox
         changed = True
+    if st.session_state.get("lang") != lang_selectbox:
+        st.session_state["lang"] = world_selectbox
+        changed = True
     
     # Already marked changed = True outside the function for item; this is just a placeholder
     if st.session_state.get("item"):
@@ -570,8 +573,8 @@ def sync_params_and_redirect(changed: bool = False):
 def initialize_params():
     params = st.query_params
     # Initialise page params
-    if "language" not in st.session_state:
-        st.session_state["language"] = "English"
+    if "lang" not in st.session_state:
+        st.session_state["lang"] = "English"
     if "dc" not in st.session_state:
         st.session_state["dc"] = params.get("dc") or "Mana"
     if "world" not in st.session_state:
@@ -595,7 +598,7 @@ if __name__ == "__main__":
     worlds_dc_df = get_worlds_dc()
     dc_list = worlds_dc_df.select("datacentre").unique().to_series().to_list()
     dc_list.sort()
-    language_list = ["English", "日本語"]
+    lang_list = ["English", "日本語"]
 
     world_list = worlds_dc_df.select("world").to_series().to_list()
     world_list.sort()
@@ -659,9 +662,9 @@ if __name__ == "__main__":
         st.number_input(_("Low velocity warning threshold"), min_value=0, value=int(default_velocity_goal), key ="velocity_goal", help=_("Set this to determine what threshold low velocity will flag at"))
         st.divider()
 
-        language_selectbox = st.selectbox(
-            label=_("Language"), options=language_list, 
-            index=[language.lower() for language in language_list].index(st.session_state.get("language").lower()), key="language")
+        lang_selectbox = st.selectbox(
+            label=_("Language"), options=lang_list, 
+            index=[lang.lower() for lang in lang_list].index(st.session_state.get("lang").lower()), key="lang")
         
         sync_params_and_redirect()
 
@@ -692,11 +695,12 @@ if __name__ == "__main__":
     st.markdown("")
         
     # Create recipe selectbox, including formatting data
-    if st.session_state.language.lower() == "english":
-        recipe_selectbox_df = results_df.lazy().select(pl.col("selectbox_label","recipe_id", "item_id")).unique().sort("recipe_id").collect()
-    elif st.session_state.language.lower() == "日本語":
-        recipe_selectbox_df = results_df.lazy().select(pl.col("selectbox_label_jp","recipe_id", "item_id")).unique().sort("recipe_id")
-        recipe_selectbox_df = recipe_selectbox_df.rename({"selectbox_label_jp":"selectbox_label"}).collect()
+    match st.session_state.lang.lower():
+        case "english":
+            recipe_selectbox_df = results_df.lazy().select(pl.col("selectbox_label","recipe_id", "item_id")).unique().sort("recipe_id").collect()
+        case "日本語":
+            recipe_selectbox_df = results_df.lazy().select(pl.col("selectbox_label_jp","recipe_id", "item_id")).unique().sort("recipe_id")
+            recipe_selectbox_df = recipe_selectbox_df.rename({"selectbox_label_jp":"selectbox_label"}).collect()
 
     
     def item_selectbox_index() -> int | None:
