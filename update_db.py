@@ -14,7 +14,7 @@ import polib
 load_dotenv(dotenv_path='./.env')
 GH_TOKEN  = os.getenv("GH_TOKEN")
 DB_NAME = "ffxiv_price.duckdb"
-FORCE_UPDATE = False
+FORCE_UPDATE = True
 
 logger = utils.setup_logger(__name__)
 csv_files =["ClassJob.csv", "Item.csv", "GilShopItem.csv", "Recipe.csv", "World.csv", "WorldDCGroupType.csv"]
@@ -27,7 +27,7 @@ csv_files_requiring_manual_update_via_saint_coinach = ["Item_ja.csv"]
         "ItemSeries.csv", "ItemSortCategory.csv", "ItemUICategory.csv",
         "RecipeNotebookList.csv", "RecipeLevelTable.csv",
         "RecipeLookup.csv", "RecipeNotebookList.csv", "RecipeSubCategory.csv",
-        "GilShop.csv", "GilShopInfo.csv", ]
+        "GilShop.csv", "GilShopInfo.csv", "SpecialShop.csv"]
 """
 
 def local_last_updated(file: str) -> Optional[datetime]:
@@ -160,17 +160,16 @@ def update_duckdb() -> None:
             db.execute(fr"CREATE OR REPLACE TABLE imported.{filename} AS SELECT * FROM df")
             logger.info(f"Updated imported.{filename} table in database")
 
-        with open("world_dc.sql", "r") as f:
-            query = f.read()
-            df = db.sql(query).pl()
-            db.execute(fr"CREATE OR REPLACE TABLE main.world_dc AS SELECT * FROM df")
-            logger.info("Created main.world_dc table")
 
-        with open("recipe_price.sql", "r") as f:
-            query = f.read()
-            df = db.sql(query).pl()
-            db.execute(fr"CREATE OR REPLACE TABLE main.recipe_price AS SELECT * FROM df")
-            logger.info("Created main.recipe_price table")
+        table_list = ["world_dc", "recipe_unpivoted", "recipe_price"]
+        # order of table matters as they are created based on each other
+        for table in table_list:
+            with open(fr"sql/{table}.sql", "r") as f:
+                query = f.read()
+                df = db.sql(query).pl()
+                db.execute(fr"CREATE OR REPLACE TABLE main.{table} AS SELECT * FROM df")
+                logger.info(fr"Created main.{table} table")
+        
 
 
 def compile_translations():

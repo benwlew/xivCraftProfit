@@ -1,6 +1,5 @@
 """
 TODO
-- Fix language reset on change
 - Add item source, e.g. currency if vendor; SpecialShop.csv; nontrivial effort
 - Support recursive crafts (subcrafts); not sure how to implement
 """
@@ -558,7 +557,7 @@ def init_params():
     if "dc" not in st.session_state:
         st.session_state["dc"] = params.get("dc") or "Mana"
     if "world" not in st.session_state:
-        st.session_state["world"] = params.get("world")
+        st.session_state["world"] = params.get("world") or "Masamune"
     if "item" not in st.session_state:
         st.session_state["item"] = params.get("item")
     if "profit_goal" not in st.session_state:
