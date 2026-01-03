@@ -4,7 +4,7 @@ select
 			r."#" as recipe_id,
 	--Number,
 	classjob.abbreviation as job,
-			classjob.v3 as job_jp,
+			classjob.v3 as job_ja,
 	--RecipeLevelTable,
 	--v4,
 	r.Item_Result as result_id,
@@ -38,7 +38,7 @@ where
 select
 			recipe_id,
 			job,
-			job_jp,
+			job_ja,
 			result_id as item_id,
 			result_amount as item_amount,
 			'result' as recipe_part
@@ -48,7 +48,7 @@ union all
 select
 			recipe_id,
 			job,
-			job_jp,
+			job_ja,
 			ingredient0_id as item_id,
 			ingredient0_amount as item_amount,
 			'ingredient0' as type
@@ -58,7 +58,7 @@ union all
 select
 			recipe_id,
 			job,
-			job_jp,
+			job_ja,
 			ingredient1_id as item_id,
 			ingredient1_amount as item_amount,
 			'ingredient1' as type
@@ -68,7 +68,7 @@ union all
 select
 			recipe_id,
 			job,
-			job_jp,
+			job_ja,
 			ingredient2_id as item_id,
 			ingredient2_amount as item_amount,
 			'ingredient2' as type
@@ -78,7 +78,7 @@ union all
 select
 			recipe_id,
 			job,
-			job_jp,
+			job_ja,
 			ingredient3_id as item_id,
 			ingredient3_amount as item_amount,
 			'ingredient3' as type
@@ -88,7 +88,7 @@ union all
 select
 			recipe_id,
 			job,
-			job_jp,
+			job_ja,
 			ingredient4_id as item_id,
 			ingredient4_amount as item_amount,
 			'ingredient4' as type
@@ -98,7 +98,7 @@ union all
 select
 			recipe_id,
 			job,
-			job_jp,
+			job_ja,
 			ingredient5_id as item_id,
 			ingredient5_amount as item_amount,
 			'ingredient5' as type
@@ -108,7 +108,7 @@ union all
 select
 			recipe_id,
 			job,
-			job_jp,
+			job_ja,
 			ingredient6_id as item_id,
 			ingredient6_amount as item_amount,
 			'ingredient6' as type
@@ -118,7 +118,7 @@ union all
 select
 			recipe_id,
 			job,
-			job_jp,
+			job_ja,
 			ingredient7_id as item_id,
 			ingredient7_amount as item_amount,
 			'ingredient7' as type
@@ -138,19 +138,19 @@ inner join imported.item on
 	two_job_crafts as (
 select
 	any_value(recipe_id) as recipe_id,
-	item_id ,
+	result_id,
 	true as two_job_craft
 from
-	main.recipe_price rp
+	flat_recipe
 group by
-	item_id
+	result_id
 having
-	count(item_id) > 1
+	count(result_id) > 1
 )
 select
 	ur.*,
 	i."Name" as item_name,
-	ij."Name" as item_name_jp,
+	ij."Name" as item_name_ja,
 	case
 		when tjc.two_job_craft = TRUE 
 		then concat(i."Name", ' (', ur.item_id, ') (', ur.job, ')')
@@ -158,10 +158,10 @@ select
 	end as selectbox_label,
 	case
 		when tjc.two_job_craft = TRUE 
-		then concat(ij."Name", ' (', ur.item_id, ') (', ur.job_jp, ')')
+		then concat(ij."Name", ' (', ur.item_id, ') (', ur.job_ja, ')')
 		else concat(ij."Name", ' (', ur.item_id, ')')
-	end as selectbox_label_jp,
-	concat(ij."Name", ' (', ur.item_id, ')') as selectbox_label_jp,
+	end as selectbox_label_ja,
+	concat(ij."Name", ' (', ur.item_id, ')') as selectbox_label_ja,
 	i.Icon as item_icon,
 	s.price_mid as shop_price,
 	tjc.two_job_craft
@@ -169,7 +169,7 @@ from
 	unpivot_recipe as ur
 left join imported.item as i on
 	ur.item_id = i."#"
-left join imported.itemjp as ij on
+left join imported.item_ja as ij on
 	ur.item_id = ij."#"
 left join shop_items as s on
 	ur.item_id = s.item_id

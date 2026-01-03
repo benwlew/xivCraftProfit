@@ -13,12 +13,14 @@ import polib
 
 load_dotenv(dotenv_path='./.env')
 GH_TOKEN  = os.getenv("GH_TOKEN")
-
 DB_NAME = "ffxiv_price.duckdb"
+FORCE_UPDATE = False
 
 logger = utils.setup_logger(__name__)
-csv_files =["ClassJob.csv", "Item.csv", "GilShopItem.csv", "Recipe.csv", "World.csv", "WorldDCGroupType.csv", "Item_jp.csv"
-            ]
+csv_files =["ClassJob.csv", "Item.csv", "GilShopItem.csv", "Recipe.csv", "World.csv", "WorldDCGroupType.csv"]
+
+# Only English language files available from ffxiv-datamining, so other language files need to be manually extracted
+csv_files_requiring_manual_update_via_saint_coinach = ["Item_ja.csv"]
  
 """
  unused_csv_files ["ItemFood.csv", "ItemLevel.csv", "ItemSearchCategory.csv",
@@ -143,7 +145,7 @@ def update_csv(files: List[str]) -> List[str]:
 
 def update_duckdb() -> None:  
     with duckdb.connect(DB_NAME) as db:
-        for file in csv_files:
+        for file in csv_files + csv_files_requiring_manual_update_via_saint_coinach:
             filename = os.path.splitext(file)[0]
             logger.debug(f"Processing {filename} for database update")
             
@@ -158,29 +160,42 @@ def update_duckdb() -> None:
             db.execute(fr"CREATE OR REPLACE TABLE imported.{filename} AS SELECT * FROM df")
             logger.info(f"Updated imported.{filename} table in database")
 
-        with open("recipe_price.sql", "r") as f:
-            query = f.read()
-            df = db.sql(query).pl()
-            db.execute(fr"CREATE OR REPLACE TABLE main.recipe_price AS SELECT * FROM df")
-            logger.info("Created main.recipe_price table")
-
         with open("world_dc.sql", "r") as f:
             query = f.read()
             df = db.sql(query).pl()
             db.execute(fr"CREATE OR REPLACE TABLE main.world_dc AS SELECT * FROM df")
             logger.info("Created main.world_dc table")
 
+        with open("recipe_price.sql", "r") as f:
+            query = f.read()
+            df = db.sql(query).pl()
+            db.execute(fr"CREATE OR REPLACE TABLE main.recipe_price AS SELECT * FROM df")
+            logger.info("Created main.recipe_price table")
 
+
+def compile_translations():
+    for lang in ["en", "ja"]:
+        po_path = Path(f'locales/{lang}/LC_MESSAGES/app.po').resolve()
+        mo_path = po_path.with_suffix('.mo')
+        if po_path.exists():
+            po = polib.pofile(str(po_path))
+            po.save_as_mofile(str(mo_path), )
+        logger.info("Translation files updated")
 
 def main():
     """Main function to update database with latest FFXIV data."""
     db_update_required = update_csv(csv_files)
+    db_update_required = update_csv(csv_files_requiring_manual_update_via_saint_coinach)
 
-    if db_update_required:
+    if FORCE_UPDATE:
+        update_duckdb()
+    elif db_update_required:
         update_duckdb()  # Pass list of files to write to DuckDB
         logger.info("Database update completed successfully")
     else:
         logger.info("No database updates needed")
+
+    compile_translations()
 
 if __name__ == "__main__":
     main()
